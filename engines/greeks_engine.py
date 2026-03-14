@@ -4,18 +4,25 @@ greeks_engine.py
 Calculates and monitors options Greeks (delta, gamma, vega, theta, rho)
 for all positions in the conviction portfolio. Surfaces convexity exposure
 and flags Greeks thresholds for review.
+
+Reads spot prices from market_snapshots when available, falling back to
+hardcoded overrides. Writes results to greeks_snapshots and logs to agent_logs.
 """
 
 import logging
 import math
 import os
+import sys
 from datetime import datetime, date
 
 from dotenv import load_dotenv
 from scipy.stats import norm
-from supabase import create_client
 
 load_dotenv()
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from utils.supabase_helpers import get_supabase_client, write_agent_log
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -23,8 +30,7 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
 )
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+AGENT_NAME = "greeks_engine"
 
 # ---------------------------------------------------------------------------
 # Black-Scholes helpers
@@ -32,6 +38,12 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
 RISK_FREE_RATE = 0.045  # ~current Fed funds proxy
 DEFAULT_IV = 0.20       # fallback implied vol
+
+# Static fallbacks when no market_snapshots row exists
+SPOT_OVERRIDES: dict[str, float] = {
+    "SPY": 564.0,
+    "SLV": 30.0,
+}
 
 
 def _years_to_expiry(expiration_str: str) -> float:
@@ -88,18 +100,8 @@ def bs_greeks(S: float, K: float, T: float, r: float, sigma: float,
     }
 
 
-# ---------------------------------------------------------------------------
-# Spot-price placeholders (no broker API yet)
-# ---------------------------------------------------------------------------
-
-SPOT_OVERRIDES: dict[str, float] = {
-    "SPY": 564.0,
-    "SLV": 30.0,
-}
-
-
 def _get_spot(ticker: str) -> float:
-    """Return a spot price. Uses override map; extend with market_service later."""
+    """Return a spot price from static overrides (used when no DB available)."""
     return SPOT_OVERRIDES.get(ticker, 100.0)
 
 
@@ -115,9 +117,35 @@ class GreeksEngine:
 
     def __init__(self, supabase_client=None):
         if supabase_client is None:
-            self.sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+            self.sb = get_supabase_client()
         else:
             self.sb = supabase_client
+        self._spot_cache: dict[str, float] = {}
+
+    # ---- spot from market_snapshots ----------------------------------------
+
+    def _load_spot_prices(self) -> None:
+        """Load latest spot prices from market_snapshots into cache."""
+        try:
+            resp = (self.sb.table("market_snapshots")
+                    .select("ticker, price")
+                    .order("created_at", desc=True)
+                    .execute())
+            seen: set[str] = set()
+            for row in resp.data:
+                t = row["ticker"]
+                if t not in seen:
+                    self._spot_cache[t] = float(row["price"])
+                    seen.add(t)
+            logger.info("Loaded spot prices from market_snapshots: %s", self._spot_cache)
+        except Exception:
+            logger.warning("Could not load market_snapshots; using static overrides")
+
+    def _get_spot_price(self, ticker: str) -> float:
+        """Return spot from market_snapshots cache, then static fallback."""
+        if ticker in self._spot_cache:
+            return self._spot_cache[ticker]
+        return SPOT_OVERRIDES.get(ticker, 100.0)
 
     # ---- per-leg calculation -----------------------------------------------
 
@@ -135,7 +163,7 @@ class GreeksEngine:
         dict with delta, gamma, vega, theta, rho, iv
         """
         ticker = leg["ticker"]
-        S = leg.get("spot", _get_spot(ticker))
+        S = leg.get("spot", self._get_spot_price(ticker))
         K = float(leg["strike"])
         T = _years_to_expiry(leg["expiration"])
         sigma = leg.get("iv", DEFAULT_IV)
@@ -182,6 +210,11 @@ class GreeksEngine:
 
         Returns the list of snapshot rows written.
         """
+        logger.info("=== Greeks snapshot started ===")
+
+        # Try to load live spot prices first
+        self._load_spot_prices()
+
         logger.info("Fetching position legs from Supabase...")
         resp = self.sb.table("position_legs").select("*").execute()
         legs = resp.data
@@ -199,11 +232,11 @@ class GreeksEngine:
 
             row = {
                 "position_id": leg.get("position_id"),
-                "delta": greeks["delta"],
-                "gamma": greeks["gamma"],
-                "theta": greeks["theta"],
-                "vega":  greeks["vega"],
-                "iv":    greeks["iv"],
+                "delta": float(greeks["delta"]),
+                "gamma": float(greeks["gamma"]),
+                "theta": float(greeks["theta"]),
+                "vega":  float(greeks["vega"]),
+                "iv":    float(greeks["iv"]),
             }
             snapshots.append(row)
 
@@ -214,6 +247,15 @@ class GreeksEngine:
         else:
             logger.warning("No legs found; nothing to snapshot")
 
+        # Write agent_log
+        write_agent_log(self.sb, AGENT_NAME, "snapshot_and_store",
+                        "success", {
+                            "legs_processed": len(legs),
+                            "snapshots_written": len(snapshots),
+                            "spot_sources": dict(self._spot_cache),
+                        })
+
+        logger.info("=== Greeks snapshot complete ===")
         return snapshots
 
 

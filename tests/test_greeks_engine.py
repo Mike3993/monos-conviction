@@ -52,6 +52,7 @@ class TestGreeksEngine:
         # Create engine without Supabase (pass dummy; we won't call Supabase)
         self.engine = GreeksEngine.__new__(GreeksEngine)
         self.engine.sb = None  # no Supabase calls in unit tests
+        self.engine._spot_cache = {}  # initialize spot cache for tests
 
     def test_compute_greeks_returns_expected_keys(self):
         result = self.engine.compute_greeks(SAMPLE_LONG_CALL)

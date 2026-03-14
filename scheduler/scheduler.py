@@ -4,6 +4,13 @@ scheduler.py
 Defines and manages the nightly job schedule for the MONOS Conviction Engine.
 Triggers the supervisor agent pipeline at configured times and handles
 job logging, retries, and failure alerting.
+
+Pipeline execution order:
+  1. portfolio_service   — ingest positions
+  2. market_service      — fetch live prices
+  3. greeks_engine       — compute & store greeks
+  4. conviction_map      — score convexity
+  5. briefing_builder    — assemble nightly report
 """
 
 import logging
@@ -15,9 +22,12 @@ from datetime import datetime
 
 import schedule
 from dotenv import load_dotenv
-from supabase import create_client
 
 load_dotenv()
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from utils.supabase_helpers import get_supabase_client, write_agent_log
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -26,8 +36,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+AGENT_NAME = "scheduler"
 
 # Default nightly run time (Eastern-ish; adjust per deployment TZ)
 NIGHTLY_TIME = os.getenv("MONOS_NIGHTLY_TIME", "22:00")
@@ -41,7 +50,7 @@ class Scheduler:
     """
 
     def __init__(self):
-        self.sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        self.sb = get_supabase_client()
 
     # ---------------------------------------------------------------- jobs
 
@@ -52,10 +61,7 @@ class Scheduler:
 
     def run_nightly(self):
         """
-        Execute the full MONOS conviction engine pipeline:
-          1. Portfolio ingestion (refresh position data)
-          2. Greeks snapshot
-          3. Conviction map scoring
+        Execute the full MONOS conviction engine pipeline (5 steps).
         Logs a task_runs record to Supabase for observability.
         """
         run_start = datetime.utcnow().isoformat()
@@ -63,8 +69,10 @@ class Scheduler:
 
         steps = [
             ("portfolio_ingestion", self._step_portfolio_ingestion),
-            ("greeks_snapshot", self._step_greeks_snapshot),
-            ("conviction_scoring", self._step_conviction_scoring),
+            ("market_snapshot",     self._step_market_snapshot),
+            ("greeks_snapshot",     self._step_greeks_snapshot),
+            ("conviction_scoring",  self._step_conviction_scoring),
+            ("briefing_build",      self._step_briefing_build),
         ]
 
         results: dict = {}
@@ -78,6 +86,11 @@ class Scheduler:
                     result = step_fn()
                     results[step_name] = {"status": "success", "detail": result}
                     logger.info("Step %s completed successfully", step_name)
+
+                    # Per-step agent_log
+                    write_agent_log(self.sb, AGENT_NAME,
+                                    f"step:{step_name}", "success",
+                                    {"attempt": attempt + 1, "detail": result})
                     break
                 except Exception as exc:
                     attempt += 1
@@ -90,6 +103,10 @@ class Scheduler:
                             "traceback": traceback.format_exc(),
                         }
                         overall_status = "partial_failure"
+
+                        write_agent_log(self.sb, AGENT_NAME,
+                                        f"step:{step_name}", "failed",
+                                        {"error": str(exc), "attempts": attempt})
 
         # Persist task_runs record
         run_end = datetime.utcnow().isoformat()
@@ -108,6 +125,16 @@ class Scheduler:
         except Exception:
             logger.exception("Failed to write task_runs record")
 
+        # Overall pipeline agent_log
+        write_agent_log(self.sb, AGENT_NAME, "run_nightly", overall_status, {
+            "started_at": run_start,
+            "finished_at": run_end,
+            "steps_completed": sum(
+                1 for v in results.values() if v.get("status") == "success"
+            ),
+            "steps_total": len(steps),
+        })
+
         logger.info("=== MONOS nightly pipeline finished (%s) ===", overall_status)
         return results
 
@@ -117,6 +144,12 @@ class Scheduler:
         from services.portfolio_service import ingest_positions
         ingest_positions()
         return "positions ingested"
+
+    def _step_market_snapshot(self) -> str:
+        from services.market_service import MarketService
+        svc = MarketService(supabase_client=self.sb)
+        snapshots = svc.fetch_and_store()
+        return f"{len(snapshots)} market snapshots written"
 
     def _step_greeks_snapshot(self) -> str:
         from engines.greeks_engine import GreeksEngine
@@ -129,6 +162,12 @@ class Scheduler:
         engine = ConvictionMapEngine(supabase_client=self.sb, regime="risk_on")
         scores = engine.run_from_supabase()
         return f"{len(scores)} positions scored"
+
+    def _step_briefing_build(self) -> str:
+        from services.briefing_builder import BriefingBuilder
+        builder = BriefingBuilder(supabase_client=self.sb)
+        report = builder.build_and_store(regime="risk_on")
+        return f"briefing built for {report['report_date']}"
 
     # ----------------------------------------------------------- run loop
 

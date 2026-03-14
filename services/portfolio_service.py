@@ -12,9 +12,12 @@ import os
 import sys
 
 from dotenv import load_dotenv
-from supabase import create_client
 
 load_dotenv()
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from utils.supabase_helpers import get_supabase_client, write_agent_log
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -27,15 +30,14 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 
+AGENT_NAME = "portfolio_service"
+
 # ---------------------------------------------------------------------------
 # Supabase client
 # ---------------------------------------------------------------------------
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
-
-logger.info("Supabase URL: %s", SUPABASE_URL)
-supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+supabase = get_supabase_client()
+logger.info("Supabase client initialized")
 
 # ---------------------------------------------------------------------------
 # Ingestion
@@ -84,6 +86,13 @@ def ingest_positions(path: str = DATA_PATH) -> None:
             logger.exception("Failed to insert leg %s", leg)
 
     logger.info("MONOS Position Registry populated successfully")
+
+    write_agent_log(supabase, AGENT_NAME, "ingest_positions",
+                    "success", {
+                        "ladders": len(data["ladders"]),
+                        "positions": len(data["positions"]),
+                        "legs": len(data["position_legs"]),
+                    })
 
 
 # ---------------------------------------------------------------------------

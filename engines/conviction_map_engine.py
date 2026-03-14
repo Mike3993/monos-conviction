@@ -4,19 +4,25 @@ conviction_map_engine.py
 Builds and scores the conviction map across all active positions and ladders.
 Combines regime context, Greeks exposure, and macro signals to produce
 a normalized conviction score per position or thesis.
+
+Stores scored results in simulation_runs for historical tracking.
 """
 
+import json
 import logging
 import math
 import os
+import sys
 from datetime import datetime, date
 
 from dotenv import load_dotenv
-from supabase import create_client
-
-from engines.greeks_engine import GreeksEngine, _get_spot, _years_to_expiry, DEFAULT_IV
 
 load_dotenv()
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from engines.greeks_engine import GreeksEngine, _get_spot, _years_to_expiry, DEFAULT_IV
+from utils.supabase_helpers import get_supabase_client, write_agent_log
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -24,8 +30,7 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
 )
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+AGENT_NAME = "conviction_map_engine"
 
 # ---------------------------------------------------------------------------
 # Regime multipliers  (maps regime_engine labels -> conviction weight)
@@ -59,7 +64,6 @@ def _time_value_score(expiration_str: str) -> float:
     Longer-dated legs score higher.
     """
     T = _years_to_expiry(expiration_str)
-    # sigmoid-like mapping: 6-month option ~ 0.5, 1yr ~ 0.73
     return 1 - math.exp(-1.5 * T)
 
 
@@ -80,7 +84,7 @@ class ConvictionMapEngine:
 
     def __init__(self, supabase_client=None, regime: str = "risk_on"):
         if supabase_client is None:
-            self.sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+            self.sb = get_supabase_client()
         else:
             self.sb = supabase_client
 
@@ -107,7 +111,7 @@ class ConvictionMapEngine:
 
         # 1. Moneyness
         m = _moneyness(spot, strike)
-        moneyness_score = max(0.0, min(1.0, 0.5 + m * 5))  # center at 0.5
+        moneyness_score = max(0.0, min(1.0, 0.5 + m * 5))
 
         # 2. Time value
         time_score = _time_value_score(expiration)
@@ -123,7 +127,7 @@ class ConvictionMapEngine:
         raw = (0.25 * moneyness_score
                + 0.30 * time_score
                + 0.30 * convexity_score
-               + 0.15 * (regime_mult - 0.5))  # normalize regime to ~0-1 range
+               + 0.15 * (regime_mult - 0.5))
 
         score = round(min(max(raw * 100, 0), 100), 2)
 
@@ -138,8 +142,8 @@ class ConvictionMapEngine:
             "convexity": round(convexity_score, 4),
             "regime": self.regime,
             "regime_mult": regime_mult,
-            "delta": greeks["delta"],
-            "gamma": greeks["gamma"],
+            "delta": float(greeks["delta"]),
+            "gamma": float(greeks["gamma"]),
         }
         logger.info("Conviction score for %s %s K=%.0f: %.2f",
                      ticker, leg.get("leg_type"), strike, score)
@@ -155,9 +159,11 @@ class ConvictionMapEngine:
 
     def run_from_supabase(self) -> list[dict]:
         """
-        Pull position_legs from Supabase, score them, and return results.
+        Pull position_legs from Supabase, score them, store in simulation_runs,
+        and return results.
         """
-        logger.info("Fetching position legs for conviction scoring...")
+        logger.info("=== Conviction map scoring started ===")
+
         resp = self.sb.table("position_legs").select("*").execute()
         legs = resp.data
         logger.info("Scoring %d legs against regime='%s'", len(legs), self.regime)
@@ -171,7 +177,39 @@ class ConvictionMapEngine:
                 "expiration": leg.get("expiration", "2026-12-18"),
             })
 
-        return self.score_positions(enriched_legs)
+        scores = self.score_positions(enriched_legs)
+
+        # Persist to simulation_runs
+        if scores:
+            sim_row = {
+                "engine": "conviction_map",
+                "parameters": {
+                    "regime": self.regime,
+                    "legs_scored": len(scores),
+                    "run_date": date.today().isoformat(),
+                },
+                "result": {
+                    "scores": scores,
+                    "top_conviction": scores[0] if scores else None,
+                    "avg_score": round(
+                        sum(s["conviction_score"] for s in scores) / len(scores), 2
+                    ),
+                },
+            }
+            logger.info("Writing simulation_runs record...")
+            self.sb.table("simulation_runs").insert(sim_row).execute()
+            logger.info("simulation_runs record written")
+
+        # Agent log
+        write_agent_log(self.sb, AGENT_NAME, "run_from_supabase",
+                        "success", {
+                            "legs_scored": len(scores),
+                            "regime": self.regime,
+                            "top_score": scores[0]["conviction_score"] if scores else 0,
+                        })
+
+        logger.info("=== Conviction map scoring complete ===")
+        return scores
 
 
 # ---------------------------------------------------------------------------
