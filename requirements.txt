@@ -1,0 +1,8 @@
+supabase
+python-dotenv
+yfinance
+pandas
+numpy
+scipy
+schedule
+polygon-api-client
