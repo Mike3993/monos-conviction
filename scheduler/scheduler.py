@@ -6,11 +6,12 @@ Triggers the supervisor agent pipeline at configured times and handles
 job logging, retries, and failure alerting.
 
 Pipeline execution order:
-  1. portfolio_service   — ingest positions
-  2. market_service      — fetch live prices
-  3. greeks_engine       — compute & store greeks
-  4. conviction_map      — score convexity
-  5. briefing_builder    — assemble nightly report
+  1. portfolio_service        — ingest positions
+  2. market_service           — fetch live prices
+  3. greeks_engine            — compute & store greeks
+  4. conviction_map           — score convexity
+  5. convexity_heatmap_engine — gamma concentration heatmap
+  6. briefing_builder         — assemble nightly report
 """
 
 import logging
@@ -61,7 +62,7 @@ class Scheduler:
 
     def run_nightly(self):
         """
-        Execute the full MONOS conviction engine pipeline (5 steps).
+        Execute the full MONOS conviction engine pipeline (6 steps).
         Logs a task_runs record to Supabase for observability.
         """
         run_start = datetime.utcnow().isoformat()
@@ -72,6 +73,7 @@ class Scheduler:
             ("market_snapshot",     self._step_market_snapshot),
             ("greeks_snapshot",     self._step_greeks_snapshot),
             ("conviction_scoring",  self._step_conviction_scoring),
+            ("convexity_heatmap",   self._step_convexity_heatmap),
             ("briefing_build",      self._step_briefing_build),
         ]
 
@@ -162,6 +164,12 @@ class Scheduler:
         engine = ConvictionMapEngine(supabase_client=self.sb, regime="risk_on")
         scores = engine.run_from_supabase()
         return f"{len(scores)} positions scored"
+
+    def _step_convexity_heatmap(self) -> str:
+        from engines.convexity_heatmap_engine import ConvexityHeatmapEngine
+        engine = ConvexityHeatmapEngine(supabase_client=self.sb)
+        records = engine.run_and_store()
+        return f"{len(records)} strike-level gamma records"
 
     def _step_briefing_build(self) -> str:
         from services.briefing_builder import BriefingBuilder

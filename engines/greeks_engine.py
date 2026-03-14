@@ -231,7 +231,7 @@ class GreeksEngine:
             })
 
             row = {
-                "position_id": leg.get("position_id"),
+                "position_id": leg.get("id"),  # link to position_legs.id
                 "delta": float(greeks["delta"]),
                 "gamma": float(greeks["gamma"]),
                 "theta": float(greeks["theta"]),
