@@ -9,9 +9,11 @@ Pipeline execution order:
   1. portfolio_service        — ingest positions
   2. market_service           — fetch live prices
   3. greeks_engine            — compute & store greeks
-  4. conviction_map           — score convexity
-  5. convexity_heatmap_engine — gamma concentration heatmap
-  6. briefing_builder         — assemble nightly report
+  4. portfolio_analyzer       — net portfolio risk metrics
+  5. conviction_map           — score convexity
+  6. gamma_exposure_engine    — dealer GEX by strike
+  7. convexity_heatmap_engine — gamma concentration heatmap
+  8. briefing_builder         — assemble nightly report
 """
 
 import logging
@@ -69,12 +71,14 @@ class Scheduler:
         logger.info("=== MONOS nightly pipeline started at %s ===", run_start)
 
         steps = [
-            ("portfolio_ingestion", self._step_portfolio_ingestion),
-            ("market_snapshot",     self._step_market_snapshot),
-            ("greeks_snapshot",     self._step_greeks_snapshot),
-            ("conviction_scoring",  self._step_conviction_scoring),
-            ("convexity_heatmap",   self._step_convexity_heatmap),
-            ("briefing_build",      self._step_briefing_build),
+            ("portfolio_ingestion",  self._step_portfolio_ingestion),
+            ("market_snapshot",      self._step_market_snapshot),
+            ("greeks_snapshot",      self._step_greeks_snapshot),
+            ("portfolio_analysis",   self._step_portfolio_analysis),
+            ("conviction_scoring",   self._step_conviction_scoring),
+            ("gamma_exposure",       self._step_gamma_exposure),
+            ("convexity_heatmap",    self._step_convexity_heatmap),
+            ("briefing_build",       self._step_briefing_build),
         ]
 
         results: dict = {}
@@ -159,11 +163,29 @@ class Scheduler:
         snapshots = engine.snapshot_and_store()
         return f"{len(snapshots)} greeks snapshots written"
 
+    def _step_portfolio_analysis(self) -> str:
+        from engines.portfolio_analyzer import PortfolioAnalyzer
+        analyzer = PortfolioAnalyzer(supabase_client=self.sb)
+        metrics = analyzer.run_and_store()
+        if metrics is None:
+            return "no data for portfolio analysis"
+        return f"portfolio metrics computed ({metrics['legs_analysed']} legs)"
+
     def _step_conviction_scoring(self) -> str:
         from engines.conviction_map_engine import ConvictionMapEngine
         engine = ConvictionMapEngine(supabase_client=self.sb, regime="risk_on")
         scores = engine.run_from_supabase()
         return f"{len(scores)} positions scored"
+
+    def _step_gamma_exposure(self) -> str:
+        from engines.gamma_exposure_engine import compute_gex, store_gex
+        gex, processed, skipped = compute_gex(self.sb)
+        if gex is None or gex.empty:
+            return f"no GEX results (processed={processed}, skipped={skipped})"
+        store_gex(self.sb, gex)
+        write_agent_log(self.sb, AGENT_NAME, "step:gamma_exposure", "success",
+                        {"strikes": len(gex), "processed": processed, "skipped": skipped})
+        return f"{len(gex)} GEX strike records (processed={processed})"
 
     def _step_convexity_heatmap(self) -> str:
         from engines.convexity_heatmap_engine import ConvexityHeatmapEngine
