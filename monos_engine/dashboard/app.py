@@ -17,6 +17,16 @@ from monos_engine.backtest.convexity_backtest import run_convexity_backtest, run
 from monos_engine.trades.top_trades import generate_top_trades
 from monos_engine.trades.trade_dialogue import generate_dialogue
 from monos_engine.trades.exit_engine import get_exit_recommendation, get_all_exit_recommendations
+from monos_engine.translation.execution_policy_mapper import (
+    apply_policies_batch, format_trace, get_batch_summary,
+)
+from monos_engine.translation.rule_selector import get_registry_summary
+from monos_engine.translation.rule_bridge import get_active_rules, load_evidence
+from monos_engine.translation.decision_logger import log_decision, log_batch_trade, load_decision_log
+from monos_engine.translation.kill_switch import (
+    kill_rule, revive_rule, set_manual_influence,
+    get_all_rule_states, kill_all,
+)
 from monos_engine.options.provider import (
     pick_best_contract,
     get_expirations,
@@ -170,7 +180,48 @@ def api_run_batch():
     # Sort by weighted_return descending
     results.sort(key=lambda r: r["weighted_return"], reverse=True)
 
-    # Generate top trade recommendations
+    # Apply translation layer: registry-governed policy mapping
+    trace_text = ""
+    try:
+        results = apply_policies_batch(results)
+        translation = get_batch_summary(results)
+        trace_text = format_trace(results)
+    except Exception:
+        translation = {"total_trades": len(results), "trades_touched": 0, "ranking_changed": False}
+
+    # Log batch-level summary trades to decision_log.csv
+    # (one row per ticker from the batch results, not per-backtest-trade)
+    try:
+        for res in results:
+            wgt_ret = res.get("weighted_return", 0) or 0
+            orig = res.get("original_score", wgt_ret)
+            adj = res.get("adjusted_score", wgt_ret)
+
+            summary_trade = {
+                "ticker": res.get("ticker", ""),
+                "mode": res.get("mode", ""),
+                "direction": res.get("last_signal", ""),
+                "date_open": "",
+                "date_close": "",
+                "structure": res.get("structure", ""),
+                "hold_days": res.get("best_hold", ""),
+                "exit_reason": "BATCH_SUMMARY",
+                "underlying_return_pct": "",
+                "option_return_pct": wgt_ret,
+                "weighted_return": wgt_ret,
+                "win": wgt_ret > 0,
+            }
+            translation_ctx = {
+                "original_score": orig if orig is not None else wgt_ret,
+                "adjusted_score": adj if adj is not None else wgt_ret,
+                "total_boost": res.get("total_boost", 0) or 0,
+                "rule_audit_tags": res.get("rule_audit_tags", []),
+            }
+            log_batch_trade(summary_trade, translation_ctx)
+    except Exception:
+        pass  # logging must never block batch response
+
+    # Generate top trade recommendations (from potentially re-ranked results)
     top = generate_top_trades(results)
 
     return jsonify({
@@ -178,6 +229,8 @@ def api_run_batch():
         "results": results,
         "top_trades": top["top_trades"],
         "top_trades_formatted": top["formatted"],
+        "translation": translation,
+        "translation_trace": trace_text,
         "errors": errors,
     })
 
@@ -258,6 +311,82 @@ def api_trade_dialogue():
         return jsonify({"ok": True, "dialogues": dialogues})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc), "trace": traceback.format_exc()}), 500
+
+
+# ── decision measurement endpoints ──────────────────────────────────
+
+@app.route("/api/decision-report", methods=["GET"])
+def api_decision_report():
+    """Decision vs outcome measurement report."""
+    try:
+        from monos_engine.translation.decision_vs_outcome_report import generate_full_report
+        report = generate_full_report()
+        return jsonify({"ok": True, **report})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc), "trace": traceback.format_exc()}), 500
+
+
+# ── translation layer endpoints ─────────────────────────────────────
+
+@app.route("/api/translation/status", methods=["GET"])
+def api_translation_status():
+    """Get current translation layer status: registry, active rules, states."""
+    try:
+        registry = get_registry_summary()
+        active = get_active_rules()
+        states = get_all_rule_states()
+        evidence = load_evidence()
+        return jsonify({
+            "ok": True,
+            "registry": registry,
+            "active_rules": active,
+            "rule_states": states,
+            "evidence_count": len(evidence),
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/translation/kill", methods=["POST"])
+def api_translation_kill():
+    """Kill a rule immediately."""
+    data = request.get_json(silent=True) or {}
+    rule_id = data.get("rule_id", "")
+    reason = data.get("reason", "Operator kill")
+    if not rule_id:
+        return jsonify({"ok": False, "error": "rule_id required"}), 400
+    result = kill_rule(rule_id, reason)
+    return jsonify({"ok": True, **result})
+
+
+@app.route("/api/translation/revive", methods=["POST"])
+def api_translation_revive():
+    """Revive a killed rule."""
+    data = request.get_json(silent=True) or {}
+    rule_id = data.get("rule_id", "")
+    reason = data.get("reason", "Operator revive")
+    result = revive_rule(rule_id, reason)
+    return jsonify({"ok": True, **result})
+
+
+@app.route("/api/translation/kill-all", methods=["POST"])
+def api_translation_kill_all():
+    """Emergency: kill all active rules."""
+    data = request.get_json(silent=True) or {}
+    reason = data.get("reason", "Emergency kill-all")
+    count = kill_all(reason)
+    return jsonify({"ok": True, "killed": count, "reason": reason})
+
+
+@app.route("/api/translation/set-influence", methods=["POST"])
+def api_translation_set_influence():
+    """Manually override a rule's influence weight."""
+    data = request.get_json(silent=True) or {}
+    rule_id = data.get("rule_id", "")
+    weight = data.get("weight")
+    reason = data.get("reason", "Manual override")
+    result = set_manual_influence(rule_id, weight, reason)
+    return jsonify({"ok": True, **result})
 
 
 # ── live options data endpoints ─────────────────────────────────────
@@ -482,6 +611,21 @@ def api_ledger_close():
             entry["entry_price"] = actual_entry
             entry["actual_return"] = entry["realized_return_pct"]
             entry["pnl"] = entry["realized_pnl"]
+
+            # Log decision for measurement — ensure scores are never blank
+            try:
+                # Compute fallback score from realized return if no translation data
+                fallback_score = entry.get("realized_return_pct", 0) or 0
+                translation_ctx = {
+                    "original_score": entry.get("original_score") or entry.get("expected_return") or fallback_score,
+                    "adjusted_score": entry.get("adjusted_score") or fallback_score,
+                    "total_boost": entry.get("total_boost", 0) or 0,
+                    "rule_audit_tags": entry.get("rule_audit_tags", []),
+                    "original_structure": entry.get("original_structure"),
+                }
+                log_decision(entry, translation_ctx)
+            except Exception:
+                pass  # decision logging must never block trade close
 
             _save_ledger()
             sb_ok = sync_close(entry)

@@ -20,6 +20,7 @@
   <button class="tab-btn" onclick="switchTab('execution')">Execution + Ledger</button>
   <button class="tab-btn" onclick="switchTab('pnl')">Open PnL</button>
   <button class="tab-btn" onclick="switchTab('dialogue')">Rules + Dialogue</button>
+  <button class="tab-btn" onclick="switchTab('decisions')">Decisions</button>
   <button class="tab-btn" onclick="switchTab('eva')">Expected vs Actual</button>
 </nav>
 
@@ -420,7 +421,76 @@
 </div><!-- end tab-dialogue -->
 
 <!-- ================================================================
-     TAB 5 — EXPECTED vs ACTUAL
+     TAB 5 — DECISION REPORT
+     ================================================================ -->
+<div id="tab-decisions" class="tab-content">
+
+<section class="batch-header" style="margin-bottom:16px">
+  <h2>Decision vs Outcome Report</h2>
+  <div class="action-row">
+    <button onclick="loadDecisionReport()">Refresh</button>
+    <button onclick="copyDecisionReport()">Copy Report</button>
+  </div>
+</section>
+
+<!-- Summary -->
+<section id="dec-summary-section">
+  <div id="dec-summary-cards" class="cards">
+    <p class="placeholder-text">Run batches and close trades to populate the decision report.</p>
+  </div>
+</section>
+
+<!-- Translation Impact -->
+<section id="dec-impact-section" class="hidden">
+  <h2>Translation Impact</h2>
+  <div id="dec-impact-cards" class="cards"></div>
+</section>
+
+<!-- By Mode -->
+<section id="dec-mode-section" class="hidden">
+  <h2>Performance by Mode</h2>
+  <div class="table-wrap">
+    <table id="dec-mode-table">
+      <thead><tr><th>Mode</th><th>Trades</th><th>Win Rate</th><th>Avg Return</th></tr></thead>
+      <tbody id="dec-mode-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- By Rule -->
+<section id="dec-rule-section" class="hidden">
+  <h2>Performance by Rule</h2>
+  <div class="table-wrap">
+    <table id="dec-rule-table">
+      <thead><tr><th>Rule ID</th><th>Trades</th><th>Win Rate</th><th>Avg Return</th></tr></thead>
+      <tbody id="dec-rule-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- By Structure -->
+<section id="dec-struct-section" class="hidden">
+  <h2>Performance by Structure</h2>
+  <div class="table-wrap">
+    <table id="dec-struct-table">
+      <thead>
+        <tr>
+          <th>Structure</th>
+          <th>Orig #</th><th>Orig WR</th><th>Orig Avg</th>
+          <th>Trans #</th><th>Trans WR</th><th>Trans Avg</th>
+        </tr>
+      </thead>
+      <tbody id="dec-struct-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<div id="dec-status" class="status hidden"></div>
+
+</div><!-- end tab-decisions -->
+
+<!-- ================================================================
+     TAB 6 — EXPECTED vs ACTUAL
      ================================================================ -->
 <div id="tab-eva" class="tab-content">
 

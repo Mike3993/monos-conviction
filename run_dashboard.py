@@ -19,4 +19,4 @@ from monos_engine.dashboard.app import app
 
 print("\n  MONOS Backtest Dashboard")
 print("  http://127.0.0.1:5050\n")
-app.run(debug=True, port=5050, use_reloader=False)
+app.run(debug=True, port=5050)

@@ -505,7 +505,70 @@
       "notes": "",
       "close_notes": null,
       "status": "OPEN"
+    },
+    {
+      "id": 14,
+      "date_open": "2026-03-19",
+      "date_close": null,
+      "ticker": "GLD",
+      "mode": "CONVEX",
+      "structure": "LONG_CALL",
+      "direction": "LONG",
+      "contract_symbol": "O:GLD260417C00435000",
+      "expiration": "2026-04-17",
+      "strike": "435",
+      "strike_delta": 0.3905,
+      "moneyness_pct": -2.19,
+      "strike_candidates": [
+        {
+          "contract_symbol": "O:GLD260417C00435000",
+          "delta": null,
+          "mid": 30.625,
+          "otm_pct": -2.19,
+          "score": 0.4525,
+          "strike": 435
+        },
+        {
+          "contract_symbol": "O:GLD260417C00454000",
+          "delta": null,
+          "mid": 17.275,
+          "otm_pct": 2.08,
+          "score": 0.48,
+          "strike": 454
+        },
+        {
+          "contract_symbol": "O:GLD260417C00453000",
+          "delta": null,
+          "mid": 17.85,
+          "otm_pct": 1.86,
+          "score": 0.64,
+          "strike": 453
+        }
+      ],
+      "contracts": 1,
+      "hold_days": 10,
+      "confidence": 100,
+      "msa_state": "",
+      "expected_return": 132.79,
+      "quoted_bid_open": 29.9,
+      "quoted_ask_open": 31.35,
+      "quoted_mid_open": 30.625,
+      "suggested_entry_price": 30.77,
+      "actual_entry_price": 30.77,
+      "quoted_bid_close": null,
+      "quoted_ask_close": null,
+      "quoted_mid_close": null,
+      "suggested_exit_price": null,
+      "actual_exit_price": null,
+      "realized_pnl": null,
+      "realized_return_pct": null,
+      "slippage_open": 0.145,
+      "slippage_close": null,
+      "win": null,
+      "notes": "",
+      "close_notes": null,
+      "status": "OPEN"
     }
   ],
-  "next_id": 13
+  "next_id": 14
 }
