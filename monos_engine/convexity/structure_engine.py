@@ -16,6 +16,108 @@ from monos_engine.momentum.momentum import compute_momentum
 import yfinance as yf
 
 
+def classify_mode(ticker: str) -> str:
+    """Classify asset into TACTICAL, HYBRID, or CONVEX.
+
+    TACTICAL — index ETFs, default.  Use spreads for defined risk.
+    HYBRID   — sector ETFs with moderate vol.  Spreads or naked
+               depending on confidence.
+    CONVEX   — commodities / miners with outsized move potential.
+               Always naked options for full convexity.
+    """
+    t = ticker.upper()
+    if t in ("SPY", "QQQ"):
+        return "TACTICAL"
+    if t in ("SMH", "SOXX", "XLK"):
+        return "HYBRID"
+    if t in ("SLV", "GLD", "GDX", "SILJ", "COPX"):
+        return "CONVEX"
+    return "TACTICAL"
+
+
+def get_mode_config(mode: str) -> dict[str, Any]:
+    """Return trading parameters for the given asset mode.
+
+    Parameters
+    ----------
+    mode : str
+        TACTICAL, HYBRID, CONVEX, or MEAN_REVERSION.
+
+    Returns
+    -------
+    dict
+        hold_days, use_spreads, allow_naked, position_scale,
+        stop_loss, take_profit, min_confidence.
+    """
+    if mode == "TACTICAL":
+        return {
+            "hold_days": 2,
+            "use_spreads": True,
+            "allow_naked": False,
+            "position_scale": 1.0,
+            "stop_loss": 1.0,
+            "take_profit": 1.5,
+            "min_confidence": 60,
+        }
+    elif mode == "HYBRID":
+        return {
+            "hold_days": 10,
+            "use_spreads": True,
+            "allow_naked": True,
+            "position_scale": 1.2,
+            "stop_loss": 1.5,
+            "take_profit": 2.0,
+            "min_confidence": 55,
+        }
+    elif mode == "CONVEX":
+        return {
+            "hold_days": 10,
+            "use_spreads": False,
+            "allow_naked": True,
+            "position_scale": 1.5,
+            "stop_loss": 2.5,
+            "take_profit": 5.0,
+            "min_confidence": 50,
+        }
+    elif mode == "MEAN_REVERSION":
+        return {
+            "hold_days": 2,
+            "use_spreads": False,
+            "allow_naked": True,
+            "position_scale": 0.7,
+            "stop_loss": 1.0,
+            "take_profit": 2.0,
+            "min_confidence": 45,
+        }
+    # Fallback to TACTICAL
+    return get_mode_config("TACTICAL")
+
+
+def get_asset_hold_override(ticker: str, mode: str) -> int | None:
+    """Return a per-ticker hold-day override, or ``None`` to use the mode default.
+
+    This lets individual assets deviate from their mode's default hold
+    period based on observed backtest behaviour.
+    """
+    t = ticker.upper()
+    if t in ("SPY", "QQQ"):
+        return 2
+    if t in ("SMH", "SOXX", "XLK"):
+        return 10
+    if t in ("SLV", "GLD", "GDX", "SILJ", "COPX"):
+        return 10
+    return None
+
+
+# Keep backward-compatible alias so existing imports don't break
+def get_asset_mode(ticker: str) -> str:
+    """Legacy alias — maps TACTICAL→CONTROLLED, HYBRID/CONVEX→EXPLOSIVE."""
+    mode = classify_mode(ticker)
+    if mode in ("HYBRID", "CONVEX"):
+        return "EXPLOSIVE"
+    return "CONTROLLED"
+
+
 def select_structure(
     ticker: str,
     combined_signal: str,
@@ -35,12 +137,29 @@ def select_structure(
     Returns
     -------
     dict
-        ticker, structure, confidence.
+        ticker, structure, confidence, mode.
     """
+    mode = classify_mode(ticker)
+    cfg = get_mode_config(mode)
+    min_conf = cfg["min_confidence"]
+
     if combined_signal == "LONG":
-        structure = "CALL_SPREAD" if confidence >= 60 else "LONG_CALL"
+        if not cfg["allow_naked"]:
+            # TACTICAL — always spreads above min confidence
+            structure = "CALL_SPREAD" if confidence >= min_conf else "LONG_CALL"
+        elif not cfg["use_spreads"]:
+            # CONVEX — always naked for full convexity
+            structure = "LONG_CALL"
+        else:
+            # HYBRID — spread at high confidence, naked below
+            structure = "LONG_CALL" if confidence < min_conf else "CALL_SPREAD"
     elif combined_signal == "SHORT":
-        structure = "PUT_SPREAD" if confidence >= 60 else "LONG_PUT"
+        if not cfg["allow_naked"]:
+            structure = "PUT_SPREAD" if confidence >= min_conf else "LONG_PUT"
+        elif not cfg["use_spreads"]:
+            structure = "LONG_PUT"
+        else:
+            structure = "LONG_PUT" if confidence < min_conf else "PUT_SPREAD"
     else:
         structure = "NO_TRADE"
 
@@ -48,6 +167,7 @@ def select_structure(
         "ticker": ticker,
         "structure": structure,
         "confidence": confidence,
+        "mode": mode,
     }
 
 
