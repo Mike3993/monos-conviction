@@ -498,3 +498,413 @@ Tickers skipped:   0
 
 ============================================================
 [Fri 03/20/2026 20:48:49.26] Pipeline complete 
+[Fri 03/20/2026 23:00:00.78] Starting MONOS nightly pipeline 
+============================================================
+MONOS NIGHTLY PIPELINE
+Timestamp: 2026-03-20T23:00:00.997830
+Mode:      LIVE
+============================================================
+
+[pipeline] Running Guardian Engine...
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GUARDIAN ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[guardian] Table guardian_position_state exists [OK]
+
+[guardian] Fetching open positions...
+[guardian] Found 9 active positions
+
+============================================================
+GUARDIAN ENGINE — RUN COMPLETE
+============================================================
+Positions evaluated:  9
+Legs evaluated:       31
+HIGH urgency alerts:  3
+
+--- HIGH URGENCY --------------------------------------
+  [!] SLV   | LONG_PUT     | Strike    103 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | LONG_PUT     | Strike    105 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | SHORT_PUT    | Strike     95 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+
+--- HOLD ----------------------------------------------
+  [OK] SLV   | LONG_PUT     | Strike     94 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     84 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     85 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     95 | Exp 2026-12-31 | DTE 286 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     72 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike   68.5 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-03-31 | DTE  11 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     50 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     65 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2026-09-30 | DTE 194 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     90 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    100 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     40 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    110 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    120 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     90 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     95 | Exp 2026-06-18 | DTE  90 | HOLD
+
+Rows written to guardian_position_state: 31
+============================================================
+[pipeline] Guardian Engine complete
+
+[pipeline] Running Reload Engine...
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+RELOAD ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[reload] Table reload_stage_log exists [OK]
+
+[reload] Active tickers: ['SLV']
+
+============================================================
+RELOAD ENGINE — RUN COMPLETE
+============================================================
+Tickers evaluated:  1
+Rows written:       1
+
+O = EXHAUSTION  @ = ZONE_WATCH  # = ACCUMULATION  X = BLOCKED
+
+  @ SLV    | ZONE_WATCH             | allowed=N | confidence=0.25
+    Conditions: [2/3] YC1_guardian YC2_vol_clear .C3_at_zone .C4_zone_stall .C5_momentum
+    Next: WAIT_FOR_ZONE
+
+============================================================
+[pipeline] Reload Engine complete
+
+============================================================
+PIPELINE COMPLETE
+============================================================
+All engines ran successfully [OK]
+============================================================
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GUARDIAN ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[guardian] Table guardian_position_state exists [OK]
+
+[guardian] Fetching open positions...
+[guardian] Found 9 active positions
+
+============================================================
+GUARDIAN ENGINE — RUN COMPLETE
+============================================================
+Positions evaluated:  9
+Legs evaluated:       31
+HIGH urgency alerts:  3
+
+--- HIGH URGENCY --------------------------------------
+  [!] SLV   | LONG_PUT     | Strike    103 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | LONG_PUT     | Strike    105 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | SHORT_PUT    | Strike     95 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+
+--- HOLD ----------------------------------------------
+  [OK] SLV   | LONG_PUT     | Strike     94 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     84 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     85 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     95 | Exp 2026-12-31 | DTE 286 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     72 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike   68.5 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-03-31 | DTE  11 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     50 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     65 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2026-09-30 | DTE 194 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     90 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    100 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     40 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    110 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    120 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     90 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     95 | Exp 2026-06-18 | DTE  90 | HOLD
+
+Rows written to guardian_position_state: 31
+============================================================
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+RELOAD ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[reload] Table reload_stage_log exists [OK]
+
+[reload] Active tickers: ['SLV']
+
+============================================================
+RELOAD ENGINE — RUN COMPLETE
+============================================================
+Tickers evaluated:  1
+Rows written:       1
+
+O = EXHAUSTION  @ = ZONE_WATCH  # = ACCUMULATION  X = BLOCKED
+
+  @ SLV    | ZONE_WATCH             | allowed=N | confidence=0.25
+    Conditions: [2/3] YC1_guardian YC2_vol_clear .C3_at_zone .C4_zone_stall .C5_momentum
+    Next: WAIT_FOR_ZONE
+
+============================================================
+[gex] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GEX ENGINE -- RUN START
+Date: 2026-03-20
+Time: 23:00:19
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co...
+Polygon key: SET
+Tickers: SLV, GLD, GDX, SILJ, SIL
+============================================================
+
+--- SLV ---
+[gex] SLV spot (prev close): $61.52
+[gex] SLV: found 250 active contracts (next 120 days)
+[gex] SLV: fetching snapshots for 100 contracts...
+[gex] SLV: got 100 snapshots with data
+[gex] SLV: 87 contracts with OI + gamma
+[gex] SLV: snapshot written to gex_snapshots
+
+--- GLD ---
+[gex] WARNING: Spot price fetch failed for GLD: HTTP 429
+[gex] WARNING: Cannot get spot price for GLD -- skipping
+
+--- GDX ---
+[gex] WARNING: Spot price fetch failed for GDX: HTTP 429
+[gex] WARNING: Cannot get spot price for GDX -- skipping
+
+--- SILJ ---
+[gex] WARNING: Spot price fetch failed for SILJ: HTTP 429
+[gex] WARNING: Cannot get spot price for SILJ -- skipping
+
+--- SIL ---
+[gex] WARNING: Spot price fetch failed for SIL: HTTP 429
+[gex] WARNING: Cannot get spot price for SIL -- skipping
+
+============================================================
+GEX ENGINE -- RUN COMPLETE
+============================================================
+Tickers processed: 1
+Tickers skipped:   4
+  Skipped: GLD, GDX, SILJ, SIL
+
+  SLV   | spot $61.52 | net_gex: -2.80M
+        Flip: N/A | Put wall: $60.00 | Call wall: $62.00
+        Regime: NEGATIVE | Dealer: SHORT_GAMMA
+
+============================================================
+==================================================
+DEMARK ENGINE -- TD Sequential Scanner
+==================================================
+Run: 2026-03-21 03:01:35 UTC
+Tickers: SLV, GLD, GDX, SILJ, SIL
+--------------------------------------------------
+
+[SLV] Fetching daily bars...
+  [SLV] Fetch error: 429 Client Error: Too Many Requests for url: https://api.polygon.io/v2/aggs/ticker/SLV/range/1/day/2025-12-20/2026-03-20?adjusted=true&sort=asc&limit=60&apiKey=vyFTFJpl_S8C7aJycZ9aCxEI8ff1vDG2
+
+[GLD] Fetching daily bars...
+  [GLD] Fetch error: 429 Client Error: Too Many Requests for url: https://api.polygon.io/v2/aggs/ticker/GLD/range/1/day/2025-12-20/2026-03-20?adjusted=true&sort=asc&limit=60&apiKey=vyFTFJpl_S8C7aJycZ9aCxEI8ff1vDG2
+
+[GDX] Fetching daily bars...
+  [GDX] Fetch error: 429 Client Error: Too Many Requests for url: https://api.polygon.io/v2/aggs/ticker/GDX/range/1/day/2025-12-20/2026-03-20?adjusted=true&sort=asc&limit=60&apiKey=vyFTFJpl_S8C7aJycZ9aCxEI8ff1vDG2
+
+[SILJ] Fetching daily bars...
+  [SILJ] Fetch error: 429 Client Error: Too Many Requests for url: https://api.polygon.io/v2/aggs/ticker/SILJ/range/1/day/2025-12-20/2026-03-20?adjusted=true&sort=asc&limit=60&apiKey=vyFTFJpl_S8C7aJycZ9aCxEI8ff1vDG2
+
+[SIL] Fetching daily bars...
+  [SIL] Fetch error: 429 Client Error: Too Many Requests for url: https://api.polygon.io/v2/aggs/ticker/SIL/range/1/day/2025-12-20/2026-03-20?adjusted=true&sort=asc&limit=60&apiKey=vyFTFJpl_S8C7aJycZ9aCxEI8ff1vDG2
+
+==================================================
+DEMARK ENGINE -- RUN COMPLETE
+==================================================
+TICKER   DIR    COUNT    STATE                  STR    ICON
+----------------------------------------------------------
+SLV      --     --       SKIP                   --     -
+GLD      --     --       SKIP                   --     -
+GDX      --     --       SKIP                   --     -
+SILJ     --     --       SKIP                   --     -
+SIL      --     --       SKIP                   --     -
+==================================================
+========================================================
+FIB ENGINE -- Fibonacci Level Scanner
+========================================================
+Run: 2026-03-21 03:01:37 UTC
+Tickers: SLV, GLD, GDX, SILJ, SIL
+--------------------------------------------------------
+
+Fetching swing points from fib_swings...
+  Found swings for: NONE
+
+[SLV] Processing...
+  [SLV] Using SLV defaults
+  [SLV] Price fetch error: 429 Client Error: Too Many Requests for url: https://api.polygon.io/v2/aggs/ticker/SLV/prev?adjusted=true&apiKey=vyFTFJpl_S8C7aJycZ9aCxEI8ff1vDG2
+  [SLV] No current price -- skipping
+
+[GLD] Processing...
+  [GLD] No swing data -- skipping
+
+[GDX] Processing...
+  [GDX] No swing data -- skipping
+
+[SILJ] Processing...
+  [SILJ] No swing data -- skipping
+
+[SIL] Processing...
+  [SIL] No swing data -- skipping
+
+========================================================
+FIB ENGINE -- RUN COMPLETE
+========================================================
+SLV    -- swing $17.54->$34.86 | no price
+GLD    -- no swing data
+GDX    -- no swing data
+SILJ   -- no swing data
+SIL    -- no swing data
+
+========================================================
+========================================================
+SCENARIO SYNTHESIS ENGINE
+========================================================
+Run: 2026-03-21 03:01:38 UTC
+Tickers: SLV, GLD, GDX, SILJ, SIL
+--------------------------------------------------------
+
+[SLV] Fetching engine data...
+  [SLV] Sources: GEX, DeMark, Reload, Regime
+  [SLV] BEARISH | confidence: 90% [OK]
+    Primary:  CONTINUATION_DOWN (65%)
+    Alt:      CHOP_CONSOLIDATION (25%)
+    Low prob: SHARP_REVERSAL (10%)
+    Engines:  GEX=[-1] DeMark=[+0] Reload=[+0] Regime=[+0] EW=[+0]
+    Score:    -1.0
+
+[GLD] Fetching engine data...
+  [GLD] Sources: GEX, DeMark, Regime
+  [GLD] BULLISH | confidence: 90% [OK]
+    Primary:  BULLISH_CONTINUATION (65%)
+    Alt:      CHOP_CONSOLIDATION (25%)
+    Low prob: SHARP_REVERSAL_DOWN (10%)
+    Engines:  GEX=[+1] DeMark=[+0] Reload=[--] Regime=[+0] EW=[+0]
+    Score:    1.0
+
+[GDX] Fetching engine data...
+  [GDX] Sources: GEX, DeMark, Regime
+  [GDX] BULLISH | confidence: 90% [OK]
+    Primary:  BULLISH_CONTINUATION (65%)
+    Alt:      CHOP_CONSOLIDATION (25%)
+    Low prob: SHARP_REVERSAL_DOWN (10%)
+    Engines:  GEX=[+1] DeMark=[+0] Reload=[--] Regime=[+0] EW=[+0]
+    Score:    1.0
+
+[SILJ] Fetching engine data...
+  [SILJ] Sources: GEX, DeMark, Regime
+  [SILJ] BULLISH | confidence: 90% [OK]
+    Primary:  BULLISH_CONTINUATION (65%)
+    Alt:      CHOP_CONSOLIDATION (25%)
+    Low prob: SHARP_REVERSAL_DOWN (10%)
+    Engines:  GEX=[+1] DeMark=[+0] Reload=[--] Regime=[+0] EW=[+0]
+    Score:    1.0
+
+[SIL] Fetching engine data...
+  [SIL] Sources: GEX, DeMark, Regime
+  [SIL] BULLISH | confidence: 90% [OK]
+    Primary:  BULLISH_CONTINUATION (65%)
+    Alt:      CHOP_CONSOLIDATION (25%)
+    Low prob: SHARP_REVERSAL_DOWN (10%)
+    Engines:  GEX=[+1] DeMark=[+0] Reload=[--] Regime=[+0] EW=[+0]
+    Score:    1.0
+
+========================================================
+SCENARIO SYNTHESIS -- RUN COMPLETE
+========================================================
+==================================================
+SCANNER ENGINE -- RUN START
+==================================================
+Date: 2026-03-20
+Universe: 19 tickers across 5 clusters
+
+[METALS] 6 tickers: SLV, GLD, SIL, SILJ, GDX, COPX
+  . SLV   score= 46.5  WEAK_SIGNAL       [GEX DM SC BR FIB]
+  . GLD   score= 39.5  WEAK_SIGNAL       [GEX DM SC BR]
+  . SIL   score= 39.5  WEAK_SIGNAL       [GEX DM SC BR $79.19]
+  . SILJ  score= 32.5  WEAK_SIGNAL       [GEX DM SC BR $26.31]
+  . GDX   score= 32.5  WEAK_SIGNAL       [GEX DM SC BR $80.12]
+  [*] Polygon rate limit pause (60s)...
+    COPX  score=  5.0  NO_SIGNAL         [BR $69.08]
+
+[INDEX] 4 tickers: SPY, QQQ, IWM, DIA
+    SPY   score= 10.0  NO_SIGNAL         [BR]
+    QQQ   score= 10.0  NO_SIGNAL         [BR]
+    IWM   score= 10.0  NO_SIGNAL         [BR]
+    DIA   score=  0.0  NO_SIGNAL         []
+
+[ENERGY] 3 tickers: XLE, USO, XOP
+    XLE   score=  0.0  NO_SIGNAL         []
+    USO   score=  0.0  NO_SIGNAL         []
+    XOP   score=  0.0  NO_SIGNAL         []
+
+[CRYPTO] 3 tickers: BITO, MSTR, COIN
+    BITO  score=  0.0  NO_SIGNAL         []
+    MSTR  score=  0.0  NO_SIGNAL         []
+    COIN  score=  0.0  NO_SIGNAL         []
+
+[PORTFOLIO] 3 tickers: TLT, HYG, UUP
+    TLT   score= 10.0  NO_SIGNAL         [BR]
+    HYG   score= 10.0  NO_SIGNAL         [BR]
+    UUP   score=  0.0  NO_SIGNAL         []
+
+Deleting today's rows (>= 2026-03-20)...
+Inserting 19 rows...
+Insert OK
+
+==================================================
+SCANNER ENGINE -- RUN COMPLETE
+==================================================
+Tickers evaluated: 19
+Strong signals:    0
+Moderate signals:  0
+Weak signals:      5
+
+Top 5 by score:
+  TICKER CLUSTER    SCORE  SIGNAL           BIAS     DEMARK
+  ------------------------------------------------------------
+  SLV    METALS      46.5  WEAK_SIGNAL      --       IDLE 5/9
+  GLD    METALS      39.5  WEAK_SIGNAL      --       SETUP_IN_PRO 6/9
+  SIL    METALS      39.5  WEAK_SIGNAL      --       SETUP_IN_PRO 6/9
+  SILJ   METALS      32.5  WEAK_SIGNAL      --       IDLE 4/9
+  GDX    METALS      32.5  WEAK_SIGNAL      --       IDLE 4/9
+
+[Fri 03/20/2026 23:03:45.11] Pipeline complete 
