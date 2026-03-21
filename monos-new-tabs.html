@@ -292,7 +292,7 @@ function generateMockHeatmapData() {
 // ═══════════════════════════════════════════════════════════════════
 // NEW TAB COMPONENTS (lines 14347-16643 from monos-app.html)
 // ═══════════════════════════════════════════════════════════════════
-function ConvexityMap() {
+function ConvexityMap({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [cells, setCells] = useState({});
   const [loading, setLoading] = useState(true);
   const [isPlaceholder, setIsPlaceholder] = useState(false);
@@ -713,11 +713,11 @@ function ConvexityMap() {
               const heatColor = getHeatColor(tile.heat_score);
               const borderColor = getGovernorBorder(tile.governor_status);
               return (
-                <div key={tile.ticker} onClick={() => { setDrawerTicker(tile.ticker); setDrawerTab("structure"); }}
+                <div key={tile.ticker} onClick={() => { setDrawerTicker(tile.ticker); setDrawerTab("structure"); if (setSelectedTicker) setSelectedTicker(tile.ticker); }}
                   style={{
                     width: 120, padding: "10px 10px 8px", borderRadius: 8, cursor: "pointer",
-                    background: `${heatColor}08`,
-                    border: `2px solid ${borderColor}`,
+                    background: selectedTicker === tile.ticker ? `${COLORS.amber}18` : `${heatColor}08`,
+                    border: selectedTicker === tile.ticker ? `2px solid ${COLORS.amber}` : `2px solid ${borderColor}`,
                     transition: "all 0.2s ease",
                     position: "relative", overflow: "hidden",
                   }}
@@ -1005,7 +1005,7 @@ function generateDealerMock() {
   });
 }
 
-function DealerPositioning() {
+function DealerPositioning({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [gexData, setGexData] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -1151,7 +1151,7 @@ function DealerPositioning() {
         </Card>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 16 }}>
-          {gexData.map(gex => {
+          {(selectedTicker ? [...gexData].sort((a, b) => a.ticker === selectedTicker ? -1 : b.ticker === selectedTicker ? 1 : 0) : gexData).map(gex => {
             const isNeg = gex.gex_regime === 'NEGATIVE';
             const isPos = gex.gex_regime === 'POSITIVE';
             const borderColor = isNeg ? 'rgba(239,68,68,0.4)' : isPos ? 'rgba(34,197,94,0.4)' : 'rgba(100,116,139,0.3)';
@@ -1227,10 +1227,17 @@ function generateScenarioMock() {
   return cells;
 }
 
-function ConvexScenarioSurface() {
+function ConvexScenarioSurface({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [cells, setCells] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hoverCell, setHoverCell] = useState(null);
+
+  // Live engine data for selected ticker
+  const ticker = selectedTicker || 'SLV';
+  const sc = engineData?.scenario?.[ticker];
+  const gex = engineData?.gex?.[ticker];
+  const dm = engineData?.demark?.[ticker];
+  const fib = engineData?.fib?.[ticker];
 
   useEffect(() => {
     async function load() {
@@ -1279,6 +1286,15 @@ function ConvexScenarioSurface() {
 
   return (
     <div>
+      {/* Live engine data strip */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8, flexWrap:'wrap' }}>
+        <span style={{ background:'#f59e0b', color:'#000', fontWeight:700, fontSize:11, padding:'2px 8px', borderRadius:4, fontFamily:"'JetBrains Mono',monospace" }}>{ticker}</span>
+        {sc && <span style={{ background: sc.overall_bias==='BULLISH'?'#16a34a22':sc.overall_bias==='BEARISH'?'#dc262622':'#ffffff11', color: sc.overall_bias==='BULLISH'?COLORS.greenDim:sc.overall_bias==='BEARISH'?COLORS.redDim:COLORS.textDim, fontSize:10, padding:'2px 8px', borderRadius:4, fontWeight:600, fontFamily:"'JetBrains Mono',monospace" }}>{sc.overall_bias || 'NEUTRAL'}{sc.primary_probability ? ' '+Math.round(sc.primary_probability*100)+'%' : ''}</span>}
+        {gex && <Mono s={10} c={COLORS.textDim}>GEX: <span style={{ color: (gex.gex_regime||'').toUpperCase()==='NEGATIVE'?COLORS.redDim:(gex.gex_regime||'').toUpperCase()==='POSITIVE'?COLORS.greenDim:COLORS.textDim }}>{(gex.gex_regime||'--').toUpperCase()}</span>{gex.gamma_flip ? ' \u00b7 Flip $'+Number(gex.gamma_flip).toFixed(2) : ''}</Mono>}
+        {dm && <Mono s={10} c={COLORS.textDim}>DeMark: {(dm.setup_direction||'--')} {dm.setup_count||0}/9</Mono>}
+        {fib && <Mono s={10} c={COLORS.textDim}>61.8%: ${fib.r_618 ? Number(fib.r_618).toFixed(2) : '--'}{fib.nearest_level ? ' \u00b7 Nearest: '+fib.nearest_level : ''}</Mono>}
+        <span style={{ marginLeft:'auto', fontSize:8, color: sc?'#16a34a':COLORS.textDim, fontFamily:"'JetBrains Mono',monospace" }}>{sc ? '\u25cf LIVE' : '\u25cb NO DATA'}</span>
+      </div>
       <Lbl>Scenario Surface — Price × DTE → Expected P&L</Lbl>
       {loading ? <Card style={{ textAlign:"center",padding:40 }}><Mono s={14} c={COLORS.textDim}>Loading...</Mono></Card> : (
         <Card style={{ overflow:"auto" }}>
@@ -1330,6 +1346,9 @@ function ConvexScenarioSurface() {
           </div>
         </Card>
       )}
+      <div style={{ marginTop:8, fontSize:10, color:COLORS.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
+        Scenario surface shows theoretical P&L grid. Live engine data shown above for {ticker}.
+      </div>
     </div>
   );
 }
@@ -1350,20 +1369,72 @@ function generateFlowMock() {
 function OptionsFlowTab() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isLive, setIsLive] = useState(false);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        const sbUrl = DATA_SB_URL;
-        const sbKey = DATA_SB_KEY;
-        if (sbUrl && sbKey) {
-          console.log("[MONOS_UI FETCH]", "Options Flow", "flow_snapshots", "[DATA_SUPABASE]");
-          const resp = await fetch(sbUrl+"/rest/v1/flow_snapshots?order=snapshot_time.desc&limit=20",{ headers:{ apikey:sbKey,Authorization:"Bearer "+sbKey } });
-          if (resp.ok) { const data = await resp.json(); if (data && data.length > 0) { setRows(data); setLoading(false); return; } }
+        const sb = getDataSupabase();
+        if (sb) {
+          const [scanRes, scenRes] = await Promise.all([
+            sb.from('scanner_candidates')
+              .select('*')
+              .eq('cluster', 'METALS')
+              .order('opportunity_score', { ascending: false })
+              .limit(10),
+            sb.from('scenario_synthesis')
+              .select('*')
+              .order('run_ts', { ascending: false })
+              .limit(20)
+          ]);
+          const scMap = {};
+          (scenRes.data || []).forEach(r => {
+            if (!scMap[r.ticker]) scMap[r.ticker] = r;
+          });
+          if (scanRes.data && scanRes.data.length > 0) {
+            const mapped = scanRes.data.map(r => {
+              const sc = scMap[r.ticker] || {};
+              const bias = (sc.primary_bias || sc.overall_bias || '').toUpperCase();
+              return {
+                ticker: r.ticker,
+                call_volume: bias === 'BULLISH'
+                  ? Math.round(r.opportunity_score * 1000)
+                  : Math.round(r.opportunity_score * 400),
+                put_volume: bias === 'BEARISH'
+                  ? Math.round(r.opportunity_score * 1000)
+                  : Math.round(r.opportunity_score * 400),
+                call_put_ratio: bias === 'BULLISH'
+                  ? 0.65
+                  : bias === 'BEARISH'
+                  ? 1.35
+                  : 1.00,
+                largest_trade: {
+                  type: bias === 'BEARISH' ? 'PUT' : 'CALL',
+                  strike: r.spot_price
+                    ? Math.round(r.spot_price * 0.95)
+                    : 0,
+                  size: r.demark_count || 0,
+                  premium: '$' + (r.opportunity_score * 100).toFixed(0)
+                },
+                flow_signal: bias === 'BULLISH'
+                  ? 'BULLISH_SWEEP'
+                  : bias === 'BEARISH'
+                  ? 'BEARISH_SWEEP'
+                  : 'NEUTRAL'
+              };
+            });
+            setRows(mapped);
+            setIsLive(true);
+            setLoading(false);
+            return;
+          }
         }
-      } catch(e) {}
+      } catch(e) {
+        console.warn('[Flow] fetch failed:', e);
+      }
       setRows(generateFlowMock());
+      setIsLive(false);
       setLoading(false);
     }
     load();
@@ -1374,7 +1445,16 @@ function OptionsFlowTab() {
 
   return (
     <div>
-      <Lbl>Options Flow — Volume & Sweep Detection</Lbl>
+      <Lbl>Options Flow -- Volume & Sweep Detection</Lbl>
+      <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:12 }}>
+        <div style={{ width:8,height:8,borderRadius:'50%',background:isLive?'#22c55e':'#5a5e72',boxShadow:isLive?'0 0 6px rgba(34,197,94,0.5)':'none' }} />
+        <span style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:isLive?'#22c55e':'#5a5e72' }}>
+          {isLive ? 'Synthetic \u00B7 PIE-derived' : 'Mock data'}
+        </span>
+      </div>
+      <div style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:'#5a5e72',marginBottom:14 }}>
+        Flow signals derived from PIE engine outputs. Connect Unusual Whales API for real options flow.
+      </div>
       {/* Bar chart */}
       <Card style={{ marginBottom:14 }}>
         <Lbl>Call vs Put Volume</Lbl>
@@ -1408,8 +1488,8 @@ function OptionsFlowTab() {
                       <td style={{ ...tdStyle,color:COLORS.greenDim }}>{(r.call_volume||0).toLocaleString()}</td>
                       <td style={{ ...tdStyle,color:COLORS.redDim }}>{(r.put_volume||0).toLocaleString()}</td>
                       <td style={{ ...tdStyle,fontWeight:700,color:r.call_put_ratio<0.7?COLORS.greenDim:r.call_put_ratio>1.2?COLORS.redDim:COLORS.amber }}>{r.call_put_ratio}</td>
-                      <td style={{ ...tdStyle,fontSize:10 }}>{r.largest_trade ? `${r.largest_trade.type} $${r.largest_trade.strike} × ${r.largest_trade.size} (${r.largest_trade.premium})` : "—"}</td>
-                      <td style={tdStyle}><Badge text={r.flow_signal||"—"} color={sigClr} /></td>
+                      <td style={{ ...tdStyle,fontSize:10 }}>{r.largest_trade ? `${r.largest_trade.type} $${r.largest_trade.strike} x ${r.largest_trade.size} (${r.largest_trade.premium})` : "--"}</td>
+                      <td style={tdStyle}><Badge text={r.flow_signal||"--"} color={sigClr} /></td>
                     </tr>
                   );
                 })}
@@ -3439,133 +3519,184 @@ function MSALensTab() {
 
 // ═══ TAB: TRADE IDEAS — Pipeline signals from convexity_signals ═══
 function TradeIdeasTab() {
-  const [rows, setRows] = React.useState([]);
+  const [scenMap, setScenMap] = React.useState({});
+  const [scanner, setScanner] = React.useState([]);
+  const [reloadRows, setReloadRows] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState(null);
 
-  function timeAgo(dateStr) {
-    const now = new Date();
-    const then = new Date(dateStr);
-    const mins = Math.floor((now - then) / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return mins + " min ago";
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + "h ago";
-    return Math.floor(hrs / 24) + "d ago";
-  }
-
-  async function fetchIdeas() {
+  React.useEffect(() => {
     setLoading(true);
-    setError(null);
-    const sbUrl = SIGNAL_SB_URL;
-    const sbKey = SIGNAL_SB_KEY;
-    if (!sbUrl || !sbKey) {
-      setError("SIGNAL_SUPABASE not configured. Set monos_signal_url + monos_signal_key in localStorage.");
-      setLoading(false);
-      return;
+    const sb = getDataSupabase();
+    if (!sb) { setLoading(false); return; }
+
+    let pending = 3;
+    const done = () => { pending--; if (pending <= 0) setLoading(false); };
+
+    sb.from('scenario_synthesis').select('*')
+      .order('run_ts', { ascending: false }).limit(20)
+      .then(({ data }) => {
+        const m = {};
+        (data || []).forEach(r => { if (!m[r.ticker]) m[r.ticker] = r; });
+        setScenMap(m);
+        done();
+      });
+
+    sb.from('scanner_candidates').select('*')
+      .order('opportunity_score', { ascending: false }).limit(20)
+      .then(({ data }) => {
+        setScanner(data || []);
+        done();
+      });
+
+    sb.from('reload_stage_log').select('*')
+      .order('run_ts', { ascending: false }).limit(10)
+      .then(({ data }) => {
+        const m = {};
+        (data || []).forEach(r => { if (!m[r.ticker]) m[r.ticker] = r; });
+        setReloadRows(Object.values(m));
+        done();
+      });
+  }, []);
+
+  const mono = { fontFamily: "'JetBrains Mono', monospace" };
+
+  const actionCard = (r) => {
+    const stage = (r.reload_stage || r.stage || '').toUpperCase();
+    let borderCol = '#f59e0b';
+    let text = 'Watch for zone entry';
+    let sub = r.next_trigger || '';
+    if (stage.indexOf('EXHAUST') >= 0) {
+      borderCol = '#ef4444';
+      text = 'Hold -- system in exhaustion phase';
+    } else if (stage.indexOf('ACCUM') >= 0) {
+      borderCol = '#22c55e';
+      text = 'Reload permitted -- accumulation stage';
     }
-    try {
-      console.log("[MONOS_UI FETCH]", "Trade Ideas", "convexity_signals", "[SIGNAL_SUPABASE]");
-      const resp = await fetch(
-        sbUrl + "/rest/v1/convexity_signals?select=*&order=created_at.desc&limit=20",
-        { headers: { apikey: sbKey, Authorization: "Bearer " + sbKey } }
-      );
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      const data = await resp.json();
-      setRows(data);
-    } catch (e) {
-      setError(e.message);
+    return (
+      <div key={r.ticker} style={{
+        background: COLORS.bgCard, border: '1px solid ' + COLORS.border, borderRadius: 8,
+        borderLeft: '4px solid ' + borderCol, padding: '12px 16px', marginBottom: 8
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ ...mono, fontSize: 12, fontWeight: 700, background: '#92400e', color: '#fbbf24', padding: '2px 10px', borderRadius: 4 }}>{r.ticker}</span>
+          <span style={{ ...mono, fontSize: 10, color: borderCol, fontWeight: 700 }}>{stage || 'UNKNOWN'}</span>
+        </div>
+        <div style={{ ...mono, fontSize: 12, color: COLORS.text, marginBottom: 2 }}>{text}</div>
+        {sub && <div style={{ ...mono, fontSize: 10, color: '#5a5e72' }}>{sub}</div>}
+      </div>
+    );
+  };
+
+  const scenarioCard = (ticker, s) => {
+    const bias = (s.primary_bias || s.overall_bias || '').toUpperCase();
+    const isBear = bias === 'BEARISH';
+    const isBull = bias === 'BULLISH';
+    const borderCol = isBear ? '#ef4444' : isBull ? '#22c55e' : '#5a5e72';
+    const prob = s.primary_probability ? Math.round(s.primary_probability * 100) : 0;
+    const scenario = s.primary_scenario || s.primary_bias || 'unknown';
+
+    let title, body;
+    if (isBear) {
+      title = 'Protective puts -- ' + ticker;
+      body = 'System thesis: ' + scenario + ' (' + prob + '% probability). Consider downside protection if not hedged.';
+    } else if (isBull) {
+      title = 'Upside convexity -- ' + ticker;
+      body = 'System thesis: ' + scenario + ' (' + prob + '% probability). Consider call exposure at next zone.';
+    } else {
+      title = 'Wait -- ' + ticker;
+      body = 'System in chop/consolidation. No high-probability directional setup.';
     }
-    setLoading(false);
-  }
 
-  React.useEffect(() => { fetchIdeas(); }, []);
-
-  function signalColor(signal) {
-    if (signal === "LONG") return COLORS.green;
-    if (signal === "SHORT") return COLORS.red;
-    return COLORS.textDim;
-  }
-
-  function confStyle(score) {
-    if (score >= 60) return { fontWeight: 700, color: COLORS.text };
-    if (score >= 40) return { fontWeight: 400, color: COLORS.text };
-    return { fontWeight: 400, color: COLORS.textDim, opacity: 0.65 };
-  }
-
-  function structColor(s) {
-    if (!s) return COLORS.textDim;
-    if (s.includes("CALL")) return COLORS.green;
-    if (s.includes("PUT")) return COLORS.red;
-    return COLORS.textDim;
-  }
-
-  const thStyle = {
-    textAlign: "left", padding: "8px 12px", fontSize: 9, fontWeight: 700,
-    letterSpacing: 2, color: COLORS.textDim, textTransform: "uppercase",
-    borderBottom: `1px solid ${COLORS.border}`,
+    return (
+      <div key={ticker} style={{
+        background: COLORS.bgCard, border: '1px solid ' + COLORS.border, borderRadius: 8,
+        borderLeft: '4px solid ' + borderCol, padding: '12px 16px', marginBottom: 8
+      }}>
+        <div style={{ ...mono, fontSize: 12, fontWeight: 700, color: borderCol, marginBottom: 4 }}>{title}</div>
+        <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>{body}</div>
+      </div>
+    );
   };
-  const tdStyle = {
-    padding: "10px 12px", fontSize: 12, borderBottom: `1px solid ${COLORS.border}`,
-    fontFamily: "'JetBrains Mono', monospace",
-  };
+
+  const scoreColor = (sc) => sc >= 50 ? '#22c55e' : sc >= 30 ? '#f59e0b' : '#5a5e72';
+
+  if (loading) return (
+    <div style={{ textAlign: 'center', padding: 60, color: COLORS.textDim }}>
+      <Mono s={14} c={COLORS.textDim}>Loading trade ideas...</Mono>
+    </div>
+  );
+
+  const scenTickers = Object.keys(scenMap);
+  const top5 = scanner.slice(0, 5);
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div>
-          <Lbl color={COLORS.accent}>Trade Ideas</Lbl>
-          <span style={{ fontSize: 10, color: COLORS.textDim }}>Latest signals from MONOS pipeline → convexity_signals</span>
-        </div>
-        <button onClick={fetchIdeas} style={{
-          background: `${COLORS.accent}15`, border: `1px solid ${COLORS.accent}30`,
-          color: COLORS.accent, fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 10, padding: "5px 14px", borderRadius: 6, cursor: "pointer",
-          fontWeight: 700, letterSpacing: 1,
-        }}>REFRESH</button>
-      </div>
+      {/* ═══ SECTION 1 — POSITION ACTIONS ═══ */}
+      <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#f59e0b', letterSpacing: 1, marginBottom: 12 }}>POSITION ACTIONS</div>
+      {reloadRows.length > 0 ? (
+        reloadRows.map(r => actionCard(r))
+      ) : (
+        <div style={{ ...mono, fontSize: 11, color: '#5a5e72', padding: '16px 0 24px 0' }}>Reload engine pending</div>
+      )}
 
-      <Card>
-        {loading && <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim }}>Loading trade ideas…</div>}
-        {error && <div style={{ textAlign: "center", padding: 40, color: COLORS.red }}>{error}</div>}
-        {!loading && !error && rows.length === 0 && (
-          <div style={{ textAlign: "center", padding: 40, color: COLORS.textDim }}>No trade ideas yet — run the pipeline to generate signals</div>
-        )}
-        {!loading && !error && rows.length > 0 && (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      {/* Divider */}
+      <div style={{ borderTop: '1px solid ' + COLORS.border, margin: '20px 0' }} />
+
+      {/* ═══ SECTION 2 — SCENARIO IDEAS ═══ */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#f59e0b', letterSpacing: 1 }}>SCENARIO IDEAS</div>
+        <div style={{ ...mono, fontSize: 10, color: '#5a5e72', marginTop: 4 }}>Generated from PIE engine synthesis</div>
+      </div>
+      {scenTickers.length > 0 ? (
+        scenTickers.map(t => scenarioCard(t, scenMap[t]))
+      ) : (
+        <div style={{ ...mono, fontSize: 11, color: '#5a5e72', padding: '16px 0 24px 0' }}>Scenario synthesis pending</div>
+      )}
+
+      {/* Divider */}
+      <div style={{ borderTop: '1px solid ' + COLORS.border, margin: '20px 0' }} />
+
+      {/* ═══ SECTION 3 — SCANNER OPPORTUNITIES ═══ */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#f59e0b', letterSpacing: 1 }}>SCANNER OPPORTUNITIES</div>
+        <div style={{ ...mono, fontSize: 10, color: '#5a5e72', marginTop: 4 }}>Ranked by PIE opportunity score</div>
+      </div>
+      {top5.length > 0 ? (
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={thStyle}>Ticker</th>
-                <th style={thStyle}>Signal</th>
-                <th style={thStyle}>Confidence</th>
-                <th style={thStyle}>Structure</th>
-                <th style={thStyle}>Time</th>
+                <th style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: COLORS.textDim, padding: '8px 12px', borderBottom: '1px solid ' + COLORS.border, textAlign: 'left' }}>SCORE</th>
+                <th style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: COLORS.textDim, padding: '8px 12px', borderBottom: '1px solid ' + COLORS.border, textAlign: 'left' }}>TICKER</th>
+                <th style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: COLORS.textDim, padding: '8px 12px', borderBottom: '1px solid ' + COLORS.border, textAlign: 'left' }}>CLUSTER</th>
+                <th style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: COLORS.textDim, padding: '8px 12px', borderBottom: '1px solid ' + COLORS.border, textAlign: 'left' }}>SIGNAL</th>
+                <th style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: COLORS.textDim, padding: '8px 12px', borderBottom: '1px solid ' + COLORS.border, textAlign: 'left' }}>BIAS</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => {
-                const meta = r.metadata || {};
-                const signal = meta.signal || "—";
-                const confidence = r.convexity_score != null ? r.convexity_score : (r.signal_strength || 0);
-                const structure = r.structure_type || "NO_TRADE";
-                return (
-                  <tr key={r.id || i} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
-                    <td style={{ ...tdStyle, color: COLORS.accent, fontWeight: 700 }}>{r.ticker || "—"}</td>
-                    <td style={{ ...tdStyle, color: signalColor(signal), fontWeight: 700 }}>{signal}</td>
-                    <td style={{ ...tdStyle, ...confStyle(confidence) }}>{Number(confidence).toFixed(1)}</td>
-                    <td style={tdStyle}>
-                      <Badge text={structure.replace(/_/g, " ")} color={structColor(structure)} />
-                    </td>
-                    <td style={{ ...tdStyle, color: COLORS.textDim, fontSize: 10 }}>
-                      {r.created_at ? timeAgo(r.created_at) : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
+              {top5.map((r, i) => (
+                <tr key={r.ticker || i} style={{ background: i % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                  <td style={{ ...mono, padding: '8px 12px', fontSize: 13, fontWeight: 700, color: scoreColor(r.opportunity_score), borderBottom: '1px solid rgba(30,41,59,0.3)' }}>{Number(r.opportunity_score).toFixed(1)}</td>
+                  <td style={{ ...mono, padding: '8px 12px', fontSize: 12, fontWeight: 700, color: '#fbbf24', borderBottom: '1px solid rgba(30,41,59,0.3)' }}>{r.ticker}</td>
+                  <td style={{ ...mono, padding: '8px 12px', fontSize: 11, color: '#94a3b8', borderBottom: '1px solid rgba(30,41,59,0.3)' }}>{r.cluster}</td>
+                  <td style={{ ...mono, padding: '8px 12px', fontSize: 11, color: r.signal === 'STRONG_SIGNAL' ? '#22c55e' : r.signal === 'MODERATE_SIGNAL' ? '#f59e0b' : '#5a5e72', fontWeight: 700, borderBottom: '1px solid rgba(30,41,59,0.3)' }}>{(r.signal || '--').replace(/_/g, ' ')}</td>
+                  <td style={{ ...mono, padding: '8px 12px', fontSize: 11, color: (r.scenario_bias || '').indexOf('BEAR') >= 0 ? '#ef4444' : (r.scenario_bias || '').indexOf('BULL') >= 0 ? '#22c55e' : '#94a3b8', borderBottom: '1px solid rgba(30,41,59,0.3)' }}>{r.scenario_bias || '--'}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
-        )}
-      </Card>
+        </Card>
+      ) : (
+        <div style={{ ...mono, fontSize: 11, color: '#5a5e72', padding: '16px 0' }}>Scanner engine pending</div>
+      )}
+      <div style={{ ...mono, fontSize: 10, color: '#5a5e72', marginTop: 8 }}>
+        Ideas are system-generated. T0 retains all decision authority per Canon.
+      </div>
+
+      {/* Canon compliance banner */}
+      <div style={{ ...mono, fontSize: 10, color: '#5a5e72', textAlign: 'center', marginTop: 32, padding: '16px 0', borderTop: '1px solid ' + COLORS.border }}>
+        All ideas are informational only. No action may be taken without T0 review. Governance neck applies.
+      </div>
     </div>
   );
 }
@@ -4298,7 +4429,7 @@ const GuardianPanel = () => {
   );
 };
 
-const PositionsListPanel = () => {
+const PositionsListPanel = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) => {
   const [positions, setPositions] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [dbError, setDbError] = React.useState(null);
@@ -4324,9 +4455,20 @@ const PositionsListPanel = () => {
         setLoading(false);
       });
   }, [refreshKey]);
+  const filteredPositions = selectedTicker ? positions.filter(p => p.ticker === selectedTicker) : positions;
   if (loading) return <div style={{padding:24,color:COLORS.textDim}}>Loading positions...</div>;
   return (
     <div>
+      {selectedTicker && (
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,padding:'4px 0'}}>
+          <span style={{fontFamily:"'JetBrains Mono', monospace",fontSize:10,color:'#f59e0b'}}>Showing: {selectedTicker}</span>
+          <button onClick={() => setSelectedTicker(null)} style={{
+            background:'transparent',border:'1px solid '+COLORS.border,borderRadius:4,
+            color:COLORS.textDim,fontSize:9,padding:'2px 8px',cursor:'pointer',
+            fontFamily:"'JetBrains Mono', monospace"
+          }}>Clear filter</button>
+        </div>
+      )}
       <div style={{display:'flex',justifyContent:'space-between',
                    alignItems:'center',marginBottom:'1rem'}}>
         <Lbl>Open Positions</Lbl>
@@ -4348,12 +4490,12 @@ const PositionsListPanel = () => {
           </div>
         </Card>
       )}
-      {positions.length === 0 && !showForm && !dbError && (
+      {filteredPositions.length === 0 && !showForm && !dbError && (
         <Card><div style={{color:COLORS.textDim,fontSize:13}}>
-          No open positions. Click + New Position to add your first.
+          {selectedTicker ? 'No positions for ' + selectedTicker + '.' : 'No open positions. Click + New Position to add your first.'}
         </div></Card>
       )}
-      {positions.map(p => (
+      {filteredPositions.map(p => (
         <Card key={p.id} style={{marginBottom:'1rem'}}>
           <div>
             <span style={{fontFamily:"'JetBrains Mono', monospace",background:'#92400e',
@@ -5141,7 +5283,7 @@ const ScenarioStrip = () => {
   );
 };
 
-const ZoneMapTab = () => {
+const ZoneMapTab = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) => {
   const [positions, setPositions] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [hasGexData, setHasGexData] = React.useState(false);
@@ -5173,7 +5315,8 @@ const ZoneMapTab = () => {
       });
   }, []);
 
-  const tickers = [...new Set((positions || []).map(p => p.ticker))];
+  const tickersRaw = [...new Set((positions || []).map(p => p.ticker))];
+  const tickers = selectedTicker ? [...tickersRaw].sort((a, b) => a === selectedTicker ? -1 : b === selectedTicker ? 1 : 0) : tickersRaw;
 
   if (loading) return <div style={{ padding: 24, color: COLORS.textDim }}>Loading zones...</div>;
 
@@ -5796,9 +5939,173 @@ const TAB_CONFIG = [
   { id: "pieconfig",  label: "PIE Config",    icon: "⚙" },
 ];
 
+// ═══ TICKER BAR — persistent ticker selector ═══
+const TickerBar = ({ tickerUniverse, selectedTicker, setSelectedTicker, engineLoaded, engineData }) => {
+  const { position, watchlist } = tickerUniverse;
+  const Btn = ({ ticker, tier }) => {
+    const isSel = selectedTicker === ticker;
+    const sc = engineData?.scenario?.[ticker];
+    const tierClr = tier === 'position' ? '#f59e0b' : '#5b8af5';
+    return (
+      <button
+        onClick={() => setSelectedTicker(isSel ? null : ticker)}
+        style={{
+          padding: '3px 10px', borderRadius: 4,
+          border: isSel ? '1px solid ' + tierClr : '1px solid rgba(255,255,255,0.08)',
+          background: isSel ? tierClr + '18' : 'transparent',
+          color: isSel ? tierClr : '#5a5e72',
+          fontSize: 10, fontWeight: 700, cursor: 'pointer',
+          fontFamily: "'JetBrains Mono', monospace",
+          letterSpacing: 0.5, transition: 'all 0.15s'
+        }}>
+        {ticker}
+        {sc && (
+          <span style={{
+            marginLeft: 4, fontSize: 8,
+            color: sc.overall_bias === 'BEARISH' ? '#ef4444'
+              : sc.overall_bias === 'BULLISH' ? '#22c55e' : '#5a5e72'
+          }}>
+            {sc.overall_bias === 'BEARISH' ? '\u25BC'
+              : sc.overall_bias === 'BULLISH' ? '\u25B2' : '\u2013'}
+          </span>
+        )}
+      </button>
+    );
+  };
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center',
+      gap: 6, padding: '5px 16px',
+      borderBottom: '1px solid rgba(255,255,255,0.06)',
+      background: 'rgba(0,0,0,0.2)',
+      flexWrap: 'wrap', minHeight: 32
+    }}>
+      {position.length > 0 && (
+        <React.Fragment>
+          <span style={{
+            fontSize: 8, color: '#f59e0b',
+            fontFamily: "'JetBrains Mono', monospace",
+            letterSpacing: 1.5, textTransform: 'uppercase',
+            marginRight: 2
+          }}>positions</span>
+          {position.map(t => <Btn key={t} ticker={t} tier="position" />)}
+          <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 4px' }} />
+        </React.Fragment>
+      )}
+      {watchlist.length > 0 && (
+        <React.Fragment>
+          <span style={{
+            fontSize: 8, color: '#5b8af5',
+            fontFamily: "'JetBrains Mono', monospace",
+            letterSpacing: 1.5, textTransform: 'uppercase',
+            marginRight: 2
+          }}>watchlist</span>
+          {watchlist.map(t => <Btn key={t} ticker={t} tier="watchlist" />)}
+        </React.Fragment>
+      )}
+      <button
+        onClick={() => setSelectedTicker(null)}
+        style={{
+          marginLeft: 'auto', padding: '3px 10px',
+          borderRadius: 4,
+          border: !selectedTicker ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.08)',
+          background: !selectedTicker ? 'rgba(245,158,11,0.12)' : 'transparent',
+          color: !selectedTicker ? '#f59e0b' : '#5a5e72',
+          fontSize: 10, fontWeight: 700, cursor: 'pointer',
+          fontFamily: "'JetBrains Mono', monospace"
+        }}>
+        ALL
+      </button>
+      <span style={{
+        fontSize: 8,
+        color: engineLoaded ? '#22c55e' : '#5a5e72',
+        fontFamily: "'JetBrains Mono', monospace"
+      }}>
+        {engineLoaded ? '\u25CF live' : '\u25CB loading'}
+      </span>
+    </div>
+  );
+};
+
 function App() {
   const [activeTab, setActiveTab] = React.useState("convexmap");
-  
+  const [selectedTicker, setSelectedTicker] = React.useState(null);
+  const [tickerUniverse, setTickerUniverse] = React.useState({
+    position: ['SLV'],
+    watchlist: ['GLD','GDX','SILJ','SIL'],
+    research: ['COPX','SPY','QQQ']
+  });
+  const [engineData, setEngineData] = React.useState({
+    gex: {}, demark: {}, fib: {},
+    scenario: {}, scanner: [], reload: {}
+  });
+  const [engineLoaded, setEngineLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    const loadUniverse = () => {
+      const sb = getDataSupabase();
+      if (!sb) return;
+
+      const toMap = (rows) => {
+        const m = {};
+        (rows || []).forEach(r => { if (!m[r.ticker]) m[r.ticker] = r; });
+        return m;
+      };
+
+      // Load ticker universe
+      sb.from('ticker_universe')
+        .select('ticker, tier, cluster')
+        .eq('is_active', true)
+        .then(({ data: univData }) => {
+          sb.from('positions')
+            .select('ticker')
+            .eq('is_active', true)
+            .then(({ data: posData }) => {
+              if (univData) {
+                const pos = univData.filter(r => r.tier === 'POSITION').map(r => r.ticker);
+                const watch = univData.filter(r => r.tier === 'WATCHLIST').map(r => r.ticker);
+                const research = univData.filter(r => r.tier === 'RESEARCH').map(r => r.ticker);
+                const posTickers = [...new Set([...pos, ...(posData || []).map(r => r.ticker)])];
+                setTickerUniverse({ position: posTickers, watchlist: watch, research: research });
+              }
+            });
+        });
+
+      // Load all engine data in parallel
+      let pending = 6;
+      const ed = { gex: {}, demark: {}, fib: {}, scenario: {}, scanner: [], reload: {} };
+      const check = () => { pending--; if (pending <= 0) { setEngineData(ed); setEngineLoaded(true); } };
+
+      sb.from('gex_snapshots').select('*')
+        .order('run_ts', { ascending: false }).limit(30)
+        .then(({ data }) => { ed.gex = toMap(data); check(); });
+
+      sb.from('demark_signals').select('*')
+        .eq('timeframe', 'daily')
+        .order('run_ts', { ascending: false }).limit(30)
+        .then(({ data }) => { ed.demark = toMap(data); check(); });
+
+      sb.from('fib_levels').select('*')
+        .order('run_ts', { ascending: false }).limit(20)
+        .then(({ data }) => { ed.fib = toMap(data); check(); });
+
+      sb.from('scenario_synthesis').select('*')
+        .order('run_ts', { ascending: false }).limit(30)
+        .then(({ data }) => { ed.scenario = toMap(data); check(); });
+
+      sb.from('scanner_candidates').select('*')
+        .order('opportunity_score', { ascending: false }).limit(50)
+        .then(({ data }) => { ed.scanner = data || []; check(); });
+
+      sb.from('reload_stage_log').select('*')
+        .order('run_ts', { ascending: false }).limit(20)
+        .then(({ data }) => { ed.reload = toMap(data); check(); });
+    };
+    loadUniverse();
+  }, []);
+
+  const engineData_ref = engineData;
+
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, color: COLORS.text, fontFamily: "'DM Sans', sans-serif" }}>
       {/* Header */}
@@ -5836,21 +6143,30 @@ function App() {
         ))}
       </div>
 
+      {/* Ticker Bar */}
+      <TickerBar
+        tickerUniverse={tickerUniverse}
+        selectedTicker={selectedTicker}
+        setSelectedTicker={setSelectedTicker}
+        engineLoaded={engineLoaded}
+        engineData={engineData}
+      />
+
       {/* Tab Content */}
       <div style={{ padding: "18px 24px", minHeight: "calc(100vh - 100px)" }}>
-        {activeTab === "convexmap" && <ConvexityMap />}
-        {activeTab === "oppscan" && <OpportunityScanner />}
-        {activeTab === "dealer" && <DealerPositioning />}
-        {activeTab === "scensurf" && <ConvexScenarioSurface />}
-        {activeTab === "optflow" && <OptionsFlowTab />}
-        {activeTab === "portstructs" && <PortfolioStructures />}
-        {activeTab === "volsurf" && <VolSurfaceTab />}
-        {activeTab === "regimeprob" && <RegimeProbabilityTab />}
-        {activeTab === "msalens" && <MSALensTab />}
-        {activeTab === "tradeideas" && <TradeIdeasTab />}
-        {activeTab === "positions" && <React.Fragment><OperatorCard /><GuardianPanel /><PositionsListPanel /><LedgerPanel /></React.Fragment>}
-        {activeTab === "zonemap" && <ZoneMapTab />}
-        {activeTab === "pieconfig" && <PIEConfigTab />}
+        {activeTab === "convexmap" && <ConvexityMap selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "oppscan" && <OpportunityScanner selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "dealer" && <DealerPositioning selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "scensurf" && <ConvexScenarioSurface selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "optflow" && <OptionsFlowTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "portstructs" && <PortfolioStructures selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "volsurf" && <VolSurfaceTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "regimeprob" && <RegimeProbabilityTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "msalens" && <MSALensTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "tradeideas" && <TradeIdeasTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "positions" && <React.Fragment><OperatorCard selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} /><GuardianPanel selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} /><PositionsListPanel selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} /><LedgerPanel selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} /></React.Fragment>}
+        {activeTab === "zonemap" && <ZoneMapTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "pieconfig" && <PIEConfigTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
       </div>
 
       {/* Footer */}
