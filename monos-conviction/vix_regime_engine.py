@@ -1,6 +1,6 @@
 """
 VIX Regime Engine -- MONOS Conviction Pipeline
-Fetches VIX family data from Polygon, classifies vol regime,
+Fetches VIX family data from iVolatility API, classifies vol regime,
 adjusts scenario synthesis confidence scores.
 """
 
@@ -8,7 +8,7 @@ import os
 import sys
 import json
 import requests
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -20,13 +20,13 @@ load_dotenv(env_path)
 
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')
+IVOLATILITY_API_KEY = os.environ.get('IVOLATILITY_API_KEY')
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     print('[VIX] FATAL: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set')
     sys.exit(1)
-if not POLYGON_API_KEY:
-    print('[VIX] FATAL: POLYGON_API_KEY not set')
+if not IVOLATILITY_API_KEY:
+    print('[VIX] FATAL: IVOLATILITY_API_KEY not set in .env')
     sys.exit(1)
 
 sb = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -49,32 +49,24 @@ CREATE TABLE IF NOT EXISTS public.vix_regime (
 );
 """
 
-# ── STEP 2: Fetch VIX data from Polygon ───────────────────
-SYMBOLS = {
-    'vix':   'I:VIX',
-    'vix9d': 'I:VIX9D',
-    'vix3m': 'I:VIX3M',
-    'vvix':  'I:VVIX',
-}
-
-def fetch_vix_data():
-    values = {}
-    for key, sym in SYMBOLS.items():
-        try:
-            url = f'https://api.polygon.io/v2/aggs/ticker/{sym}/prev'
-            params = {'adjusted': 'true', 'apiKey': POLYGON_API_KEY}
-            resp = requests.get(url, params=params, timeout=15)
-            data = resp.json()
-            if data.get('results') and len(data['results']) > 0:
-                values[key] = float(data['results'][0]['c'])
-                print(f'  {key:6s} = {values[key]:.2f}  ({sym})')
-            else:
-                values[key] = None
-                print(f'  {key:6s} = None   ({sym} -- no results)')
-        except Exception as e:
-            values[key] = None
-            print(f'  {key:6s} = None   ({sym} -- ERROR: {e})')
-    return values
+# ── STEP 2: Fetch VIX data from iVolatility ──────────────
+def fetch_ivolatility(symbol):
+    try:
+        url = 'https://restapi.ivolatility.com/equities/eod/implied-volatility'
+        params = {
+            'apiKey': IVOLATILITY_API_KEY,
+            'ticker': symbol,
+            'startDate': (date.today() - timedelta(days=5)).isoformat(),
+            'endDate': date.today().isoformat()
+        }
+        resp = requests.get(url, params=params, timeout=10)
+        data = resp.json()
+        if data and isinstance(data, list) and len(data) > 0:
+            return float(data[-1].get('impliedVolatility', 0)) * 100
+        return None
+    except Exception as e:
+        print(f'  [iVol] {symbol} fetch failed: {e}')
+        return None
 
 
 # ── STEP 3: Classify VIX regime ───────────────────────────
@@ -199,13 +191,18 @@ def main():
     print('='*50)
     print()
 
-    # Step 2: Fetch
-    print('[VIX] Fetching VIX family from Polygon...')
-    values = fetch_vix_data()
-    vix = values.get('vix')
-    vix9d = values.get('vix9d')
-    vix3m = values.get('vix3m')
-    vvix = values.get('vvix')
+    # Step 2: Fetch from iVolatility
+    print('[VIX] Fetching VIX family from iVolatility...')
+    # VIX proxies from iVolatility
+    # Use SPY ATM IV as VIX proxy if direct VIX not available
+    vix = fetch_ivolatility('VIX') or fetch_ivolatility('SPY')
+    vix9d = fetch_ivolatility('VIX9D')
+    vix3m = fetch_ivolatility('VIX3M')
+    vvix = fetch_ivolatility('VVIX')
+    print(f'  vix   = {vix}')
+    print(f'  vix9d = {vix9d}')
+    print(f'  vix3m = {vix3m}')
+    print(f'  vvix  = {vvix}')
     print()
 
     # Step 3: Classify
