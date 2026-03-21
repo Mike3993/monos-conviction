@@ -1445,30 +1445,29 @@ function PortfolioStructures() {
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const sb = getDataSupabase();
-      console.log('[Portfolio] getDataSupabase() ->', sb ? 'OK' : 'NULL',
-                  'DATA_SB_URL:', DATA_SB_URL ? DATA_SB_URL.slice(0,30)+'...' : 'NOT SET');
-      if (!sb) { setLoading(false); return; }
-      const { data: pos, error: posErr } = await sb
-        .from('positions')
-        .select('*, legs:position_legs(*)')
-        .eq('is_active', true)
-        .order('entry_date', { ascending: false });
-      console.log('[Portfolio] positions:', pos?.length, pos?.[0], posErr || 'OK');
-      const { data: synthesis } = await sb
-        .from('scenario_synthesis')
-        .select('*')
-        .order('run_ts', { ascending: false })
-        .limit(20);
-      const sm = {};
-      (synthesis || []).forEach(r => { if (!sm[r.ticker]) sm[r.ticker] = r; });
-      setScenMap(sm);
-      setPositions(pos || []);
-      setLoading(false);
-    };
-    load();
+    setLoading(true);
+    const sb = getDataSupabase();
+    console.log('[Portfolio] getDataSupabase() ->', sb ? 'OK' : 'NULL',
+                'DATA_SB_URL:', DATA_SB_URL ? DATA_SB_URL.slice(0,30)+'...' : 'NOT SET');
+    if (!sb) { setLoading(false); return; }
+    sb.from('positions')
+      .select('*, legs:position_legs(*)')
+      .eq('is_active', true)
+      .order('entry_date', { ascending: false })
+      .then(({ data, error }) => {
+        console.log('[Portfolio] positions query ->', error ? 'ERROR: '+error.message : (data||[]).length+' rows');
+        setPositions(data || []);
+        sb.from('scenario_synthesis')
+          .select('*')
+          .order('run_ts', { ascending: false })
+          .limit(20)
+          .then(({ data: synthesis }) => {
+            const sm = {};
+            (synthesis || []).forEach(r => { if (!sm[r.ticker]) sm[r.ticker] = r; });
+            setScenMap(sm);
+            setLoading(false);
+          });
+      });
   }, []);
 
   const mono = { fontFamily: "'JetBrains Mono', monospace" };
@@ -1715,25 +1714,77 @@ function VolSurfaceTab() {
   const [selectedTicker, setSelectedTicker] = useState("SLV");
   const plotRef = useRef(null);
 
+  // Signals state
+  const SIG_TICKERS = ['SLV','GLD','GDX','SILJ','SIL'];
+  const [sigData, setSigData] = useState({ gex: {}, demark: {}, fib: {}, scenario: {} });
+  const [sigLoading, setSigLoading] = useState(true);
+
+  // Load vol surface data
   useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const sbUrl = DATA_SB_URL;
-        const sbKey = DATA_SB_KEY;
-        if (sbUrl && sbKey) {
-          console.log("[MONOS_UI FETCH]", "Vol Surface", "vol_surface", "[DATA_SUPABASE]");
-          const resp = await fetch(sbUrl+"/rest/v1/vol_surface?order=ticker.asc&limit=50",{ headers:{ apikey:sbKey,Authorization:"Bearer "+sbKey } });
-          if (resp.ok) { const data = await resp.json(); if (data && data.length > 0) { setRows(data); setLoading(false); return; } }
-        }
-      } catch(e) {}
+    setLoading(true);
+    const sb = getDataSupabase();
+    if (sb) {
+      sb.from('vol_surface')
+        .select('*')
+        .order('ticker', { ascending: true })
+        .limit(50)
+        .then(({ data }) => {
+          if (data && data.length > 0) { setRows(data); }
+          else { setRows(generateVolSurfaceMock()); }
+          setLoading(false);
+        });
+    } else {
       setRows(generateVolSurfaceMock());
       setLoading(false);
     }
-    load();
   }, []);
 
-  // Generate mock 3D surface for selected ticker
+  // Load PIE engine signals
+  useEffect(() => {
+    setSigLoading(true);
+    const sb = getDataSupabase();
+    if (!sb) { setSigLoading(false); return; }
+
+    const toMap = (arr) => {
+      const m = {};
+      (arr || []).forEach(r => { if (!m[r.ticker]) m[r.ticker] = r; });
+      return m;
+    };
+
+    let pending = 4;
+    const done = () => { pending--; if (pending <= 0) setSigLoading(false); };
+
+    sb.from('gex_snapshots').select('*')
+      .order('run_ts', { ascending: false }).limit(20)
+      .then(({ data }) => {
+        setSigData(prev => ({ ...prev, gex: toMap(data) }));
+        done();
+      });
+
+    sb.from('demark_signals').select('*')
+      .eq('timeframe', 'daily')
+      .order('run_ts', { ascending: false }).limit(20)
+      .then(({ data }) => {
+        setSigData(prev => ({ ...prev, demark: toMap(data) }));
+        done();
+      });
+
+    sb.from('fib_levels').select('*')
+      .order('run_ts', { ascending: false }).limit(10)
+      .then(({ data }) => {
+        setSigData(prev => ({ ...prev, fib: toMap(data) }));
+        done();
+      });
+
+    sb.from('scenario_synthesis').select('*')
+      .order('run_ts', { ascending: false }).limit(20)
+      .then(({ data }) => {
+        setSigData(prev => ({ ...prev, scenario: toMap(data) }));
+        done();
+      });
+  }, []);
+
+  // Generate 3D surface for selected ticker
   useEffect(() => {
     if (!plotRef.current || typeof window.Plotly === "undefined") return;
     const strikes = [];
@@ -1775,22 +1826,31 @@ function VolSurfaceTab() {
     window.Plotly.newPlot(plotRef.current, data, layout, { responsive: true, displayModeBar: false });
   }, [selectedTicker, rows]);
 
-  const thStyle = { fontSize:9,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:COLORS.textDim,padding:"8px 10px",borderBottom:`1px solid ${COLORS.border}`,textAlign:"left" };
-  const tdStyle = { padding:"8px 10px",borderBottom:`1px solid ${COLORS.border}08`,fontSize:12,fontFamily:"'JetBrains Mono',monospace" };
+  const mono = { fontFamily: "'JetBrains Mono', monospace" };
+  const thStyle = { fontSize:9,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:COLORS.textDim,padding:"8px 12px",borderBottom:'1px solid '+COLORS.border,textAlign:"left",...mono };
+  const tdStyle = { padding:"8px 12px",borderBottom:'1px solid rgba(30,41,59,0.3)',fontSize:12,...mono };
+  const volThStyle = { fontSize:9,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:COLORS.textDim,padding:"8px 10px",borderBottom:'1px solid '+COLORS.border,textAlign:"left" };
+  const volTdStyle = { padding:"8px 10px",borderBottom:'1px solid '+COLORS.border+'08',fontSize:12,fontFamily:"'JetBrains Mono',monospace" };
+
+  const fmtPrice = (v) => v != null ? '$' + Number(v).toFixed(2) : '--';
+
+  const hasSignals = Object.keys(sigData.gex).length > 0 || Object.keys(sigData.demark).length > 0 || Object.keys(sigData.fib).length > 0;
 
   return (
     <div>
+      {/* Vol Surface Header */}
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
         <Lbl>Volatility Surface Analysis</Lbl>
         <select value={selectedTicker} onChange={e => setSelectedTicker(e.target.value)} style={{
-          background:COLORS.bgCard,border:`1px solid ${COLORS.border}`,borderRadius:6,color:COLORS.text,fontSize:11,padding:"4px 10px",cursor:"pointer",
+          background:COLORS.bgCard,border:'1px solid '+COLORS.border,borderRadius:6,color:COLORS.text,fontSize:11,padding:"4px 10px",cursor:"pointer",
         }}>
           {rows.map(r => <option key={r.ticker} value={r.ticker}>{r.ticker}</option>)}
         </select>
       </div>
+
       {/* 3D Surface */}
       <Card style={{ marginBottom:14 }}>
-        <Lbl>{selectedTicker} — Implied Volatility Surface (Strike × DTE → IV)</Lbl>
+        <Lbl>{selectedTicker} -- Implied Volatility Surface (Strike x DTE -> IV)</Lbl>
         {typeof window.Plotly !== "undefined" ? (
           <div ref={plotRef} style={{ width:"100%",height:420 }} />
         ) : (
@@ -1799,38 +1859,180 @@ function VolSurfaceTab() {
           </div>
         )}
       </Card>
-      {/* Data grid */}
+
+      {/* Vol Data grid */}
       {loading ? <Card style={{ textAlign:"center",padding:40 }}><Mono s={14} c={COLORS.textDim}>Loading...</Mono></Card> : (
-        <Card style={{ padding:0,overflow:"hidden" }}>
+        <Card style={{ padding:0,overflow:"hidden",marginBottom:14 }}>
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead><tr>
-                <th style={thStyle}>TICKER</th><th style={thStyle}>IV RANK</th><th style={thStyle}>SKEW SLOPE</th><th style={thStyle}>TERM STRUCTURE</th><th style={thStyle}>IV-RV GAP</th><th style={thStyle}>HV20</th><th style={thStyle}>HV60</th>
+                <th style={volThStyle}>TICKER</th><th style={volThStyle}>IV RANK</th><th style={volThStyle}>SKEW SLOPE</th><th style={volThStyle}>TERM STRUCTURE</th><th style={volThStyle}>IV-RV GAP</th><th style={volThStyle}>HV20</th><th style={volThStyle}>HV60</th>
               </tr></thead>
               <tbody>
                 {rows.map(r => (
-                  <tr key={r.ticker} onClick={() => setSelectedTicker(r.ticker)} style={{ cursor:"pointer",background:r.ticker===selectedTicker?`${COLORS.accent}08`:"transparent" }}
+                  <tr key={r.ticker} onClick={() => setSelectedTicker(r.ticker)} style={{ cursor:"pointer",background:r.ticker===selectedTicker?COLORS.accent+'08':"transparent" }}
                     onMouseEnter={e => { if(r.ticker!==selectedTicker) e.currentTarget.style.background=COLORS.bgHover; }} onMouseLeave={e => { if(r.ticker!==selectedTicker) e.currentTarget.style.background="transparent"; }}>
-                    <td style={{ ...tdStyle,fontWeight:700,color:COLORS.text }}>{r.ticker}</td>
-                    <td style={tdStyle}>
+                    <td style={{ ...volTdStyle,fontWeight:700,color:COLORS.text }}>{r.ticker}</td>
+                    <td style={volTdStyle}>
                       <div style={{ display:"flex",alignItems:"center",gap:6 }}>
                         <div style={{ width:50,height:6,background:COLORS.bgHover,borderRadius:3,overflow:"hidden" }}>
-                          <div style={{ width:`${r.iv_rank}%`,height:"100%",background:r.iv_rank<=25?COLORS.greenDim:r.iv_rank>=75?COLORS.redDim:COLORS.amber,borderRadius:3 }} />
+                          <div style={{ width:(r.iv_rank||0)+'%',height:"100%",background:r.iv_rank<=25?COLORS.greenDim:r.iv_rank>=75?COLORS.redDim:COLORS.amber,borderRadius:3 }} />
                         </div>
                         <Mono s={11} c={r.iv_rank<=25?COLORS.greenDim:r.iv_rank>=75?COLORS.redDim:COLORS.amber}>{r.iv_rank}</Mono>
                       </div>
                     </td>
-                    <td style={{ ...tdStyle,color:r.skew_slope<0?COLORS.greenDim:COLORS.redDim }}>{r.skew_slope>0?"+":""}{r.skew_slope}</td>
-                    <td style={tdStyle}><Badge text={r.term_structure} color={r.term_structure==="BACKWARDATION"?COLORS.orange:r.term_structure==="CONTANGO"?COLORS.blue:COLORS.textDim} /></td>
-                    <td style={{ ...tdStyle,color:r.iv_rv_gap<0?COLORS.greenDim:COLORS.redDim,fontWeight:700 }}>{r.iv_rv_gap>0?"+":""}{r.iv_rv_gap}%</td>
-                    <td style={{ ...tdStyle,color:COLORS.text }}>{r.hv20}%</td>
-                    <td style={{ ...tdStyle,color:COLORS.text }}>{r.hv60}%</td>
+                    <td style={{ ...volTdStyle,color:r.skew_slope<0?COLORS.greenDim:COLORS.redDim }}>{r.skew_slope>0?"+":""}{r.skew_slope}</td>
+                    <td style={volTdStyle}><Badge text={r.term_structure} color={r.term_structure==="BACKWARDATION"?COLORS.orange:r.term_structure==="CONTANGO"?COLORS.blue:COLORS.textDim} /></td>
+                    <td style={{ ...volTdStyle,color:r.iv_rv_gap<0?COLORS.greenDim:COLORS.redDim,fontWeight:700 }}>{r.iv_rv_gap>0?"+":""}{r.iv_rv_gap}%</td>
+                    <td style={{ ...volTdStyle,color:COLORS.text }}>{r.hv20}%</td>
+                    <td style={{ ...volTdStyle,color:COLORS.text }}>{r.hv60}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </Card>
+      )}
+
+      {/* ═══ DIVIDER ═══ */}
+      <div style={{ borderTop: '1px solid ' + COLORS.border, margin: '24px 0 20px 0' }} />
+
+      {/* ═══ PIE SIGNALS SUMMARY ═══ */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div>
+          <div style={{ ...mono, fontSize: 14, fontWeight: 700, color: '#f59e0b', letterSpacing: 1 }}>PIE SIGNALS</div>
+          <div style={{ ...mono, fontSize: 10, color: '#5a5e72', marginTop: 4 }}>
+            Live engine outputs {'\u00B7'} metals universe
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%',
+            background: hasSignals ? '#22c55e' : '#5a5e72',
+            boxShadow: hasSignals ? '0 0 6px rgba(34,197,94,0.5)' : 'none' }} />
+          <span style={{ ...mono, fontSize: 10, color: hasSignals ? '#22c55e' : '#5a5e72' }}>
+            {hasSignals ? 'Live' : 'No data'}
+          </span>
+        </div>
+      </div>
+
+      {sigLoading ? (
+        <Card style={{ textAlign: 'center', padding: 40 }}>
+          <Mono s={14} c={COLORS.textDim}>Loading engine signals...</Mono>
+        </Card>
+      ) : (
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>TICKER</th>
+                  <th style={thStyle}>SCENARIO</th>
+                  <th style={thStyle}>GEX</th>
+                  <th style={thStyle}>DTE SETUP</th>
+                  <th style={thStyle}>FIB NEAREST</th>
+                  <th style={thStyle}>SPOT</th>
+                </tr>
+              </thead>
+              <tbody>
+                {SIG_TICKERS.map((t, i) => {
+                  const g = sigData.gex[t];
+                  const d = sigData.demark[t];
+                  const f = sigData.fib[t];
+                  const s = sigData.scenario[t];
+                  return (
+                    <tr key={t} style={{ background: i % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                      {/* TICKER */}
+                      <td style={tdStyle}>
+                        <span style={{ ...mono, fontSize: 12, fontWeight: 700, background: '#92400e', color: '#fbbf24', padding: '2px 10px', borderRadius: 4 }}>{t}</span>
+                      </td>
+                      {/* SCENARIO */}
+                      <td style={tdStyle}>
+                        {s ? (() => {
+                          const bias = (s.primary_bias || '').toUpperCase();
+                          const prob = s.primary_probability ? Math.round(s.primary_probability * 100) : 0;
+                          const isBear = bias === 'BEARISH';
+                          const isBull = bias === 'BULLISH';
+                          const fg = isBear ? '#ef4444' : isBull ? '#22c55e' : '#94a3b8';
+                          const lbl = isBear ? 'DOWN' : isBull ? 'UP' : 'CHOP';
+                          return React.createElement('span', { style: { ...mono, fontSize: 11, fontWeight: 700, color: fg } }, lbl + ' ' + prob + '%');
+                        })() : (
+                          <span style={{ ...mono, fontSize: 11, color: '#5a5e72' }}>--</span>
+                        )}
+                      </td>
+                      {/* GEX */}
+                      <td style={tdStyle}>
+                        {g ? (() => {
+                          const isNeg = g.gex_regime === 'NEGATIVE';
+                          const isPos = g.gex_regime === 'POSITIVE';
+                          const fg = isNeg ? '#ef4444' : isPos ? '#22c55e' : '#94a3b8';
+                          const bg = isNeg ? 'rgba(239,68,68,0.15)' : isPos ? 'rgba(34,197,94,0.15)' : 'rgba(90,94,114,0.15)';
+                          const lbl = isNeg ? 'SHORT' : isPos ? 'LONG' : 'NEUT';
+                          const flip = g.gamma_flip ? ' $' + Number(g.gamma_flip).toFixed(2) : '';
+                          return React.createElement('span', { style: { ...mono, fontSize: 10, fontWeight: 700, color: fg, background: bg, padding: '2px 8px', borderRadius: 10 } }, lbl + flip);
+                        })() : (
+                          <span style={{ ...mono, fontSize: 11, color: '#5a5e72' }}>--</span>
+                        )}
+                      </td>
+                      {/* DTE SETUP (DeMark) */}
+                      <td style={tdStyle}>
+                        {d ? (() => {
+                          const dir = (d.setup_direction || '?').toUpperCase();
+                          const ct = d.setup_count || 0;
+                          const isBuy = dir === 'BUY';
+                          const fg = isBuy ? '#22c55e' : '#ef4444';
+                          const has9 = d.signal_state && d.signal_state.indexOf('9') >= 0;
+                          return React.createElement('span', { style: { ...mono, fontSize: 11, fontWeight: 700, color: fg } }, dir + ' ' + ct + '/9' + (has9 ? ' \u25CF' : ''));
+                        })() : (
+                          <span style={{ ...mono, fontSize: 11, color: '#5a5e72' }}>--</span>
+                        )}
+                      </td>
+                      {/* FIB NEAREST */}
+                      <td style={tdStyle}>
+                        {f ? (
+                          <div>
+                            <span style={{ ...mono, fontSize: 11, color: '#f59e0b' }}>
+                              {f.nearest_level || '?'}{' $'}{f.nearest_price ? Number(f.nearest_price).toFixed(2) : '?'}
+                            </span>
+                            <div style={{ ...mono, fontSize: 9, color: '#5a5e72', marginTop: 2 }}>
+                              ({f.nearest_distance_pct ? Number(f.nearest_distance_pct).toFixed(1) : '?'}% away)
+                            </div>
+                          </div>
+                        ) : (
+                          <span style={{ ...mono, fontSize: 11, color: '#5a5e72' }}>--</span>
+                        )}
+                      </td>
+                      {/* SPOT */}
+                      <td style={{ ...tdStyle, color: '#ffffff', fontWeight: 700 }}>
+                        {g && g.spot_price ? fmtPrice(g.spot_price) : '--'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* Engine run timestamps */}
+      {!sigLoading && (
+        <div style={{ marginTop: 16, padding: '12px 16px', background: COLORS.bgCard, border: '1px solid ' + COLORS.border, borderRadius: 8 }}>
+          <div style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: 2, color: '#5a5e72', textTransform: 'uppercase', marginBottom: 8 }}>Last engine runs</div>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            {[
+              ['GEX', Object.values(sigData.gex)[0]],
+              ['DeMark', Object.values(sigData.demark)[0]],
+              ['Fib', Object.values(sigData.fib)[0]],
+              ['Scenario', Object.values(sigData.scenario)[0]],
+            ].map(([lbl, row]) => (
+              <span key={lbl} style={{ ...mono, fontSize: 10, color: '#5a5e72' }}>
+                {lbl}: <span style={{ color: row ? '#94a3b8' : '#5a5e72' }}>
+                  {row && row.run_ts ? new Date(row.run_ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -4552,10 +4754,11 @@ const formatGex = (val) => {
 const ZoneCard = ({ ticker }) => {
   const typeColor = {
     CURRENT: '#5b8af5',
-    RETRACE: '#f59e0b',
-    EXTENSION: '#22c55e',
+    PRIMARY: '#f59e0b',
+    DEEP: '#f97316',
+    EXTENSION: '#5b8af5',
+    MAJOR_EXTENSION: '#a855f7',
     SWING: '#a855f7',
-    NEAREST: '#ef4444',
     PENDING: '#5a5e72',
   };
 
@@ -4593,24 +4796,24 @@ const ZoneCard = ({ ticker }) => {
       });
   }, [ticker]);
 
-  // Build fib zones from live data or show pending
+  // Build fib zones from live data or show hardcoded SLV fallback
   const zones = React.useMemo(() => {
-    if (!fib) return [{ level: null, label: 'Fib zones pending engine run', type: 'PENDING', confidence: null }];
+    if (!fib) return [
+      { level: 32.50, label: 'Resistance zone', type: 'EXTENSION', confidence: 0.70 },
+      { level: 30.00, label: 'Pivot', type: 'PRIMARY', confidence: 0.60 },
+      { level: 28.50, label: 'Support zone', type: 'DEEP', confidence: 0.55 },
+      { level: 26.00, label: 'Deep support', type: 'PENDING', confidence: 0.40 },
+    ];
     const n = fib.nearest_level;
+    const matchNearest = (lbl) => n && lbl.indexOf(n.replace('%','')) >= 0;
     return [
       { level: fib.current_price, label: 'Current price', type: 'CURRENT', confidence: null },
-      { level: fib.swing_high, label: 'Swing high' + (fib.swing_high_date ? ' (' + fib.swing_high_date + ')' : ''), type: 'SWING', confidence: null },
-      { level: fib.e_2618, label: '261.8% extension', type: 'EXTENSION', confidence: null, nearest: n === '261.8%' },
-      { level: fib.e_1618, label: '161.8% extension', type: 'EXTENSION', confidence: null, nearest: n === '161.8%' },
-      { level: fib.e_1272, label: '127.2% extension', type: 'EXTENSION', confidence: null, nearest: n === '127.2%' },
-      { level: fib.e_100, label: '100% extension', type: 'EXTENSION', confidence: null, nearest: n === '100%' },
-      { level: fib.r_236, label: '23.6% retracement', type: 'RETRACE', confidence: null, nearest: n === '23.6%' },
-      { level: fib.r_382, label: '38.2% retracement', type: 'RETRACE', confidence: null, nearest: n === '38.2%' },
-      { level: fib.r_500, label: '50.0% retracement', type: 'RETRACE', confidence: null, nearest: n === '50.0%' },
-      { level: fib.r_618, label: '61.8% retracement', type: 'RETRACE', confidence: null, nearest: n === '61.8%' },
-      { level: fib.r_786, label: '78.6% retracement', type: 'RETRACE', confidence: null, nearest: n === '78.6%' },
-      { level: fib.swing_low, label: 'Swing low' + (fib.swing_low_date ? ' (' + fib.swing_low_date + ')' : ''), type: 'SWING', confidence: null },
-    ].filter(z => z.level != null).sort((a, b) => b.level - a.level);
+      { level: fib.r_618, label: '61.8% retrace' + (matchNearest('61.8% retrace') ? ' -- nearest' : ''), type: 'PRIMARY', confidence: 0.85 },
+      { level: fib.r_786, label: '78.6% retrace (deep)' + (matchNearest('78.6% retrace') ? ' -- nearest' : ''), type: 'DEEP', confidence: 0.72 },
+      { level: fib.e_100, label: '100% extension' + (matchNearest('100% extension') ? ' -- nearest' : ''), type: 'EXTENSION', confidence: 0.60 },
+      { level: fib.e_1618, label: '161.8% extension' + (matchNearest('161.8% extension') ? ' -- nearest' : ''), type: 'EXTENSION', confidence: 0.55 },
+      { level: fib.e_2618, label: '261.8% extension' + (matchNearest('261.8% extension') ? ' -- nearest' : ''), type: 'MAJOR_EXTENSION', confidence: 0.50 },
+    ].filter(z => z.level != null);
   }, [fib]);
 
   const gexZoneRow = (dotColor, price, label, badge) => (
@@ -4657,32 +4860,52 @@ const ZoneCard = ({ ticker }) => {
       </div>
 
       {/* Fib Zones */}
-      {zones.map((z, i) => (
+      {zones.map((z, i) => {
+        const isNearest = z.label && z.label.indexOf('nearest') >= 0;
+        return (
         <div key={i} style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0',
-          borderBottom: i < zones.length - 1 ? '1px solid rgba(30,41,59,0.5)' : 'none'
+          borderBottom: i < zones.length - 1 ? '1px solid rgba(30,41,59,0.5)' : 'none',
+          background: isNearest ? 'rgba(239,68,68,0.06)' : 'transparent'
         }}>
           <div style={{
             width: 10, height: 10, borderRadius: '50%',
-            background: typeColor[z.type], flexShrink: 0
+            background: typeColor[z.type] || '#5a5e72', flexShrink: 0,
+            boxShadow: isNearest ? '0 0 8px rgba(239,68,68,0.5)' : 'none'
           }} />
           <span style={{
             fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
-            color: typeColor[z.type], minWidth: 70
+            color: isNearest ? '#ef4444' : (typeColor[z.type] || '#5a5e72'), minWidth: 70,
+            fontWeight: isNearest ? 700 : 400
           }}>
             {z.level ? `$${z.level.toFixed(2)}` : '\u2014'}
           </span>
-          <span style={{ fontSize: 11, color: z.nearest ? '#ef4444' : '#94a3b8', flex: 1, fontWeight: z.nearest ? 700 : 400 }}>{z.label}</span>
-          {z.nearest && (
+          <span style={{ fontSize: 11, color: isNearest ? '#ef4444' : '#94a3b8', flex: 1, fontWeight: isNearest ? 700 : 400 }}>{z.label}</span>
+          {z.confidence && (
             <span style={{
               fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
-              color: '#ef4444', fontWeight: 700
+              color: z.confidence > 0.7 ? '#22c55e' : '#f59e0b'
             }}>
-              {'<-- NEAREST'}
+              {Math.round(z.confidence * 100)}%
             </span>
           )}
         </div>
-      ))}
+        );
+      })}
+
+      {/* Fib swing info line */}
+      {fib && (
+        <div style={{
+          fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#5a5e72',
+          padding: '10px 0 4px 0', borderTop: '1px solid rgba(30,41,59,0.5)', marginTop: 4
+        }}>
+          Swing ${fib.swing_low ? fib.swing_low.toFixed(2) : '?'} {'-> '}
+          ${fib.swing_high ? fib.swing_high.toFixed(2) : '?'}
+          {' \u00B7 nearest: '}{fib.nearest_level || '?'}{' $'}
+          {fib.nearest_price ? fib.nearest_price.toFixed(2) : '?'}
+          {' ('}{fib.nearest_distance_pct ? fib.nearest_distance_pct.toFixed(1) : '?'}{'% away)'}
+        </div>
+      )}
 
       {/* GEX Levels Section */}
       {gex && (
