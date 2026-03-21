@@ -1519,7 +1519,7 @@ function generatePortfolioMock() {
   }));
 }
 
-function PortfolioStructures() {
+function PortfolioStructures({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [positions, setPositions] = React.useState([]);
   const [scenMap, setScenMap] = React.useState({});
   const [loading, setLoading] = React.useState(true);
@@ -1536,6 +1536,7 @@ function PortfolioStructures() {
       .order('entry_date', { ascending: false })
       .then(({ data, error }) => {
         console.log('[Portfolio] positions query ->', error ? 'ERROR: '+error.message : (data||[]).length+' rows');
+        console.log('[Portfolio] rows:', (data||[]).length, (data||[])[0]?.ticker);
         setPositions(data || []);
         sb.from('scenario_synthesis')
           .select('*')
@@ -1551,13 +1552,14 @@ function PortfolioStructures() {
   }, []);
 
   const mono = { fontFamily: "'JetBrains Mono', monospace" };
-  const hasData = positions.length > 0;
-  const allLegs = positions.flatMap(p => p.legs || []);
+  const displayPositions = selectedTicker ? positions.filter(p => p.ticker === selectedTicker) : positions;
+  const hasData = displayPositions.length > 0;
+  const allLegs = displayPositions.flatMap(p => p.legs || []);
   const totalLegs = allLegs.length;
 
   // Structure type counts
   const typeCounts = {};
-  positions.forEach(p => {
+  displayPositions.forEach(p => {
     const t = p.structure_type || 'UNKNOWN';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
@@ -1576,9 +1578,9 @@ function PortfolioStructures() {
 
   // Thesis alignment from scenMap
   let bearCount = 0, bullCount = 0, neutCount = 0;
-  const tickerSet = [...new Set(positions.map(p => p.ticker))];
+  const tickerSet = [...new Set(displayPositions.map(p => p.ticker))];
   tickerSet.forEach(t => {
-    const sc = scenMap[t];
+    const sc = engineData?.scenario?.[t] || scenMap[t];
     if (!sc) { neutCount++; return; }
     if (sc.overall_bias === 'BEARISH') bearCount++;
     else if (sc.overall_bias === 'BULLISH') bullCount++;
@@ -1588,7 +1590,7 @@ function PortfolioStructures() {
   // Group by strategic_role
   const roleOrder = ['CORE', 'HEDGE', 'INCOME', 'CONVEXITY'];
   const grouped = {};
-  positions.forEach(p => {
+  displayPositions.forEach(p => {
     let meta = {};
     try { meta = JSON.parse(p.notes || '{}'); } catch(e) {}
     const role = meta.strategic_role || p.strategic_role || 'CORE';
@@ -1628,7 +1630,7 @@ function PortfolioStructures() {
             PORTFOLIO STRUCTURES
           </div>
           <div style={{ ...mono, fontSize: 11, color: '#5a5e72' }}>
-            {positions.length} active position{positions.length !== 1 ? 's' : ''} {'\u00B7'} {totalLegs} total legs
+            {displayPositions.length} active position{displayPositions.length !== 1 ? 's' : ''} {'\u00B7'} {totalLegs} total legs
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1642,6 +1644,17 @@ function PortfolioStructures() {
           </span>
         </div>
       </div>
+
+      {selectedTicker && (
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,padding:'4px 0'}}>
+          <span style={{...mono,fontSize:10,color:'#f59e0b'}}>Showing: {selectedTicker}</span>
+          <button onClick={() => setSelectedTicker && setSelectedTicker(null)} style={{
+            background:'transparent',border:'1px solid '+COLORS.border,borderRadius:4,
+            color:COLORS.textDim,fontSize:9,padding:'2px 8px',cursor:'pointer',
+            fontFamily:"'JetBrains Mono', monospace"
+          }}>{'\u00D7'} All</button>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ padding: 40, textAlign: 'center' }}>
@@ -1657,7 +1670,7 @@ function PortfolioStructures() {
         <div>
           {/* Summary strip */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-            {metricBox('Positions', positions.length, tickerSet.join(', '))}
+            {metricBox('Positions', displayPositions.length, tickerSet.join(', '))}
             {metricBox('Structures', Object.keys(typeCounts).length, typeStr)}
             {metricBox('DTE Layers', `${shortTerm}/${midTerm}/${longTerm}`, '<30d / 30-90d / >90d')}
             {metricBox('Thesis', `${bullCount}B ${bearCount}R ${neutCount}N`,
@@ -1675,7 +1688,7 @@ function PortfolioStructures() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {grouped[role].map(p => {
-                  const sc = scenMap[p.ticker];
+                  const sc = engineData?.scenario?.[p.ticker] || scenMap[p.ticker];
                   const legs = p.legs || [];
                   let meta = p._meta || {};
                   const layer = meta.layer || p.layer || null;
@@ -3278,7 +3291,7 @@ function MSAOperatorDashboard() {
 }
 // ═══ MSA LENS TAB — Position Regime Monitor + Flip Gates ═══
 
-function MSALensTab() {
+function MSALensTab({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [gateStates, setGateStates] = useState({});
   const [liveRows, setLiveRows] = React.useState([]);
 
@@ -3318,11 +3331,10 @@ function MSALensTab() {
 
   const dotColors = { grey: '#6b7280', amber: '#f59e0b', red: '#ef4444' };
 
-  const getRowBg = (regime, structure) => {
-    if (regime.includes('SECULAR BULL') && structure.includes('INTACT')) return '#1a2e1a';
-    if (regime.includes('WATCH')) return '#2e2a1a';
-    if (regime.includes('THREATENED')) return '#2e1a1a';
-    if (regime.includes('SECULAR BULL')) return 'rgba(26,46,26,0.5)';
+  const getRowBg = (regime) => {
+    if (regime === 'BULLISH') return '#1a2e1a';
+    if (regime === 'NEUTRAL' || regime === 'PENDING') return '#2e2a1a';
+    if (regime === 'BEARISH') return '#2e1a1a';
     return 'transparent';
   };
 
@@ -3347,13 +3359,31 @@ function MSALensTab() {
     }}>{label}</span>
   );
 
-  const positions = [
-    { ticker: 'Gold', structure: 'NEW REALITY', momentum: 'Day 4 \u2193', keyLevel: '$5,300 lid level', regime: 'SECULAR BULL', canon: 'MSA-TOP-05' },
-    { ticker: 'Silver', structure: 'INTACT \u25B2', momentum: 'Day 4 \u2193', keyLevel: '$78 bear threshold', regime: 'SECULAR BULL', canon: 'MSA-AGE-02' },
-    { ticker: 'SLV', structure: 'INTACT \u25B2', momentum: 'Day 4 \u2193', keyLevel: '$80 flip abort', regime: 'SECULAR BULL', canon: 'MSA-TOP-04' },
-    { ticker: 'SIL', structure: 'INTACT \u25B2', momentum: 'Day 4 \u2193', keyLevel: '$96.20 upturn hint', regime: 'SECULAR BULL', canon: 'MSA-AGE-02' },
-    { ticker: 'GDX', structure: 'INTACT \u25B2', momentum: 'Day 4 \u2193', keyLevel: '$95.40 upturn hint', regime: 'SECULAR BULL', canon: 'MSA-AGE-02' },
-  ];
+  const positionTickers = selectedTicker
+    ? [selectedTicker]
+    : ['SLV','GLD','GDX','SIL','SILJ'];
+  const positions = positionTickers.map(ticker => {
+    const sc = engineData?.scenario?.[ticker];
+    const dm = engineData?.demark?.[ticker];
+    const gex = engineData?.gex?.[ticker];
+    return {
+      ticker,
+      structure: gex?.gex_regime === 'NEGATIVE'
+        ? 'SHORT GAMMA \u25BC' : 'LONG GAMMA \u25B2',
+      momentum: dm
+        ? (dm.setup_direction || '--').toUpperCase() + ' ' + (dm.setup_count || 0) + '/9'
+        : 'No data',
+      keyLevel: gex
+        ? 'Flip $' + (gex.gamma_flip ? Number(gex.gamma_flip).toFixed(2) : '--')
+        : '--',
+      regime: sc?.overall_bias || 'PENDING',
+      canon: sc?.overall_bias === 'BEARISH'
+        ? 'MSA-TOP-04'
+        : sc?.overall_bias === 'BULLISH'
+        ? 'MSA-AGE-02'
+        : 'NEUTRAL'
+    };
+  });
 
   const upsideGates = [
     { id: 'up1', desc: 'Gold > $5,300 daily close \u2192 lid comes off', canon: 'MSA-TOP-05', defaultDot: 'grey' },
@@ -3426,13 +3456,11 @@ function MSALensTab() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{
               width: 7, height: 7, borderRadius: '50%',
-              background: liveRows.length > 0 ? '#22c55e' : '#6b7280',
-              boxShadow: liveRows.length > 0 ? '0 0 6px rgba(34,197,94,0.5)' : 'none'
+              background: engineData?.scenario ? '#22c55e' : '#6b7280',
+              boxShadow: engineData?.scenario ? '0 0 6px rgba(34,197,94,0.5)' : 'none'
             }} />
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: liveRows.length > 0 ? '#86efac' : '#6b7280' }}>
-              {liveRows.length > 0
-                ? `Live \u00B7 last updated ${new Date(latestTimestamp).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${new Date(latestTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                : 'Placeholder data'}
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: engineData?.scenario ? '#86efac' : '#6b7280' }}>
+              {engineData?.scenario ? 'Live \u00B7 PIE engines' : 'Placeholder'}
             </span>
           </div>
         </div>
@@ -3446,21 +3474,16 @@ function MSALensTab() {
               </tr>
             </thead>
             <tbody>
-              {positions.map((p, i) => {
-                const live = latestByTicker[p.ticker];
-                const regime = live && live.regime_label ? live.regime_label : p.regime;
-                const momentum = live && live.conviction_score != null ? `Score: ${live.conviction_score}` : p.momentum;
-                return (
-                  <tr key={i} style={{ background: getRowBg(regime, p.structure) }}>
+              {positions.map((p, i) => (
+                  <tr key={i} style={{ background: getRowBg(p.regime) }}>
                     <td contentEditable={true} suppressContentEditableWarning={true} style={{ ...msaTdStyle, fontWeight: 700, color: '#e2e8f0' }}>{p.ticker}</td>
                     <td contentEditable={true} suppressContentEditableWarning={true} style={msaTdStyle}>{p.structure}</td>
-                    <td contentEditable={true} suppressContentEditableWarning={true} style={msaTdStyle}>{momentum}</td>
+                    <td contentEditable={true} suppressContentEditableWarning={true} style={msaTdStyle}>{p.momentum}</td>
                     <td contentEditable={true} suppressContentEditableWarning={true} style={msaTdStyle}>{p.keyLevel}</td>
-                    <td contentEditable={true} suppressContentEditableWarning={true} style={msaTdStyle}>{regime}</td>
+                    <td contentEditable={true} suppressContentEditableWarning={true} style={{ ...msaTdStyle, color: p.regime==='BULLISH'?'#4ade80':p.regime==='BEARISH'?'#f87171':p.regime==='NEUTRAL'?'#fbbf24':'#6b7280', fontWeight: 700 }}>{p.regime}</td>
                     <td style={msaTdStyle}><MSACanonBadge rule={p.canon} /></td>
                   </tr>
-                );
-              })}
+              ))}
             </tbody>
           </table>
         </div>
@@ -4228,40 +4251,88 @@ const OperatorCard = () => {
 // ═══════════════════════════════════════════════════════════════════
 
 const GuardianPanel = () => {
-  const [groups, setGroups] = React.useState([]);
+  const [alertGroups, setAlertGroups] = React.useState([]);
+  const [queueGroups, setQueueGroups] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
+  const [colMissing, setColMissing] = React.useState(false);
+  const [actionNotes, setActionNotes] = React.useState({});
+  const [toast, setToast] = React.useState(null);
+
+  const groupRows = (rows) => {
+    const map = {};
+    (rows || []).forEach(row => {
+      const pid = row.position_id || 'unknown';
+      if (!map[pid]) map[pid] = { position_id: pid, ticker: row.ticker, guardian_state: row.guardian_state, t0_acknowledged: row.t0_acknowledged, legs: [], hasHigh: false, bounce_exit_level: null };
+      map[pid].legs.push(row);
+      if (row.urgency === 'HIGH') map[pid].hasHigh = true;
+      if (row.bounce_exit_level) map[pid].bounce_exit_level = row.bounce_exit_level;
+      if (row.t0_acknowledged) map[pid].t0_acknowledged = true;
+      const severity = { 'ACTIVE_PROTECTION_ALERT': 3, 'UNHEDGED_REVIEW': 2, 'ACTIVE_PROTECTION': 1 };
+      if ((severity[row.guardian_state] || 0) > (severity[map[pid].guardian_state] || 0)) {
+        map[pid].guardian_state = row.guardian_state;
+      }
+    });
+    return Object.values(map);
+  };
 
   const fetchAlerts = React.useCallback(() => {
     const sb = getDataSupabase();
     if (!sb) { setError("Supabase client not available"); setLoading(false); return; }
+
+    // Check if action_logged column exists
+    sb.from('guardian_position_state')
+      .select('action_logged')
+      .limit(1)
+      .then(({ error: colErr }) => {
+        if (colErr && colErr.message && colErr.message.includes('action_logged')) {
+          console.log('[Guardian] action_logged column missing -- add via Supabase dashboard');
+          setColMissing(true);
+        }
+      });
+
+    // Fetch all non-actioned rows
     sb.from('guardian_position_state')
       .select('*')
-      .eq('t0_acknowledged', false)
+      .eq('action_logged', false)
       .order('urgency', { ascending: false })
       .order('days_to_expiry', { ascending: true })
       .then(({ data, error: err }) => {
-        if (err) { setError(err.message); setLoading(false); return; }
-        // Group by position_id
-        const map = {};
-        (data || []).forEach(row => {
-          const pid = row.position_id || 'unknown';
-          if (!map[pid]) map[pid] = { position_id: pid, ticker: row.ticker, guardian_state: row.guardian_state, legs: [], hasHigh: false, bounce_exit_level: null };
-          map[pid].legs.push(row);
-          if (row.urgency === 'HIGH') map[pid].hasHigh = true;
-          if (row.bounce_exit_level) map[pid].bounce_exit_level = row.bounce_exit_level;
-          // Promote most severe guardian_state
-          const severity = { 'ACTIVE_PROTECTION_ALERT': 3, 'UNHEDGED_REVIEW': 2, 'ACTIVE_PROTECTION': 1 };
-          if ((severity[row.guardian_state] || 0) > (severity[map[pid].guardian_state] || 0)) {
-            map[pid].guardian_state = row.guardian_state;
+        if (err) {
+          // Fallback: if action_logged column missing, use old query
+          if (err.message && err.message.includes('action_logged')) {
+            setColMissing(true);
+            sb.from('guardian_position_state')
+              .select('*')
+              .eq('t0_acknowledged', false)
+              .order('urgency', { ascending: false })
+              .order('days_to_expiry', { ascending: true })
+              .then(({ data: fallbackData, error: fallbackErr }) => {
+                if (fallbackErr) { setError(fallbackErr.message); setLoading(false); return; }
+                const all = groupRows(fallbackData);
+                setAlertGroups(all);
+                setQueueGroups([]);
+                setLoading(false);
+              });
+            return;
           }
-        });
-        setGroups(Object.values(map));
+          setError(err.message); setLoading(false); return;
+        }
+        const all = groupRows(data);
+        setAlertGroups(all.filter(g => !g.t0_acknowledged));
+        setQueueGroups(all.filter(g => g.t0_acknowledged));
         setLoading(false);
       });
   }, []);
 
   React.useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
+
+  // Toast auto-dismiss
+  React.useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const handleAcknowledge = (positionId) => {
     const sb = getDataSupabase();
@@ -4271,7 +4342,71 @@ const GuardianPanel = () => {
       .eq('position_id', positionId)
       .then(({ error: err }) => {
         if (err) { console.error('[Guardian] Acknowledge failed:', err.message); return; }
-        setGroups(prev => prev.filter(g => g.position_id !== positionId));
+        // Move from alerts to queue in local state
+        setAlertGroups(prev => {
+          const moved = prev.find(g => g.position_id === positionId);
+          if (moved) {
+            const updated = { ...moved, t0_acknowledged: true };
+            setQueueGroups(qp => [...qp, updated]);
+          }
+          return prev.filter(g => g.position_id !== positionId);
+        });
+      });
+  };
+
+  const handleResetToAlert = (positionId) => {
+    const sb = getDataSupabase();
+    if (!sb) return;
+    sb.from('guardian_position_state')
+      .update({ t0_acknowledged: false })
+      .eq('position_id', positionId)
+      .then(({ error: err }) => {
+        if (err) { console.error('[Guardian] Reset failed:', err.message); return; }
+        setQueueGroups(prev => {
+          const moved = prev.find(g => g.position_id === positionId);
+          if (moved) {
+            const updated = { ...moved, t0_acknowledged: false };
+            setAlertGroups(ap => [...ap, updated]);
+          }
+          return prev.filter(g => g.position_id !== positionId);
+        });
+      });
+  };
+
+  const handleLogAction = (g) => {
+    const sb = getDataSupabase();
+    if (!sb) return;
+    const noteText = actionNotes[g.position_id] || '';
+
+    // 1. Insert into entries
+    sb.from('entries')
+      .insert({
+        ticker: g.ticker,
+        position_id: g.position_id,
+        action_type: 'HOLD',
+        action_ts: new Date().toISOString(),
+        reason_text: noteText || 'Reviewed via Guardian Action Queue',
+        reason_codes: ['GUARDIAN_REVIEWED', 'ACTION_QUEUE'],
+        aligned_with_system: true,
+        emotional_flag: false,
+        monos_state: 'IN_TRADE'
+      })
+      .then(({ error: insErr }) => {
+        if (insErr) { console.error('[Guardian] Ledger insert failed:', insErr.message); }
+
+        // 2. Update guardian_position_state: action_logged=true
+        sb.from('guardian_position_state')
+          .update({ action_logged: true })
+          .eq('position_id', g.position_id)
+          .then(({ error: updErr }) => {
+            if (updErr) { console.error('[Guardian] action_logged update failed:', updErr.message); }
+
+            // 3. Remove from local state
+            setQueueGroups(prev => prev.filter(q => q.position_id !== g.position_id));
+
+            // 4. Toast
+            setToast('Action logged -- ' + g.ticker);
+          });
       });
   };
 
@@ -4302,8 +4437,73 @@ const GuardianPanel = () => {
     return COLORS.textDim;
   };
 
+  const renderLegsTable = (g) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {g.legs.map((leg, i) => {
+        const apStyle = actionPillStyle(leg.action);
+        const isClose = leg.action === 'CLOSE_BEFORE_DECAY';
+        return (
+          <div key={leg.id || i} style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px',
+            fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
+            borderLeft: isClose ? '2px solid ' + COLORS.red : '2px solid transparent',
+            background: isClose ? 'rgba(255,23,68,0.04)' : 'transparent',
+            borderRadius: 2
+          }}>
+            <span style={{
+              padding: '1px 7px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+              letterSpacing: 0.3, whiteSpace: 'nowrap', minWidth: 90, textAlign: 'center',
+              ...apStyle
+            }}>{leg.action}</span>
+            <span style={{ color: COLORS.text, minWidth: 80 }}>{leg.leg_type}</span>
+            <span style={{ color: COLORS.text, minWidth: 50 }}>{leg.strike}</span>
+            <span style={{ color: COLORS.textDim, minWidth: 80 }}>{leg.expiry}</span>
+            <span style={{ color: dteColor(leg.days_to_expiry), minWidth: 45 }}>
+              DTE:{leg.days_to_expiry}
+            </span>
+            <span style={{ color: COLORS.textDim, fontSize: 10, flex: 1 }}>{leg.reason}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const renderCardHeader = (g) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <span style={{
+        fontFamily: "'JetBrains Mono', monospace", background: '#92400e',
+        padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 700, color: '#fff'
+      }}>{g.ticker}</span>
+      <span style={{
+        padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 700,
+        letterSpacing: 0.5, color: stateColor(g.guardian_state),
+        background: stateColor(g.guardian_state) + '15',
+        border: '1px solid ' + stateColor(g.guardian_state) + '30'
+      }}>{g.guardian_state}</span>
+    </div>
+  );
+
+  const renderBounce = (g) => g.bounce_exit_level ? (
+    <div style={{
+      marginTop: 8, padding: '4px 8px', fontSize: 10,
+      color: COLORS.amberDim, fontFamily: "'JetBrains Mono', monospace", opacity: 0.8
+    }}>
+      Bounce exit reference: ${g.bounce_exit_level} -- consider closing near-term hedges if price reaches this level
+    </div>
+  ) : null;
+
   return (
     <div style={{ marginBottom: 24 }}>
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 9999, padding: '10px 20px',
+          background: 'rgba(34,197,94,0.15)', border: '1px solid #22c55e', borderRadius: 6,
+          color: '#4ade80', fontSize: 12, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace",
+          boxShadow: '0 4px 16px rgba(0,0,0,0.3)'
+        }}>{toast}</div>
+      )}
+
       {/* Section header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <span style={{
@@ -4333,98 +4533,158 @@ const GuardianPanel = () => {
         </Card>
       )}
 
-      {!loading && !error && groups.length === 0 && (
+      {/* SECTION A: ACTIVE ALERTS */}
+      {!loading && !error && alertGroups.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700,
+            letterSpacing: 2, color: COLORS.red, textTransform: 'uppercase', marginBottom: 8
+          }}>ALERTS</div>
+          {alertGroups.map(g => (
+            <Card key={g.position_id} style={{
+              marginBottom: 10,
+              borderColor: stateBorderColor(g.guardian_state),
+              borderLeft: '3px solid ' + stateBorderColor(g.guardian_state)
+            }}>
+              {renderCardHeader(g)}
+              {renderLegsTable(g)}
+              {renderBounce(g)}
+
+              {g.hasHigh && (
+                <div style={{
+                  marginTop: 10, padding: '8px 12px', borderRadius: 4,
+                  background: 'rgba(255,23,68,0.08)', border: '1px solid ' + COLORS.red + '30',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}>
+                  <span style={{ color: COLORS.red, fontSize: 11, fontWeight: 600 }}>
+                    Action required -- review before market open
+                  </span>
+                  <button
+                    onClick={() => handleAcknowledge(g.position_id)}
+                    style={{
+                      background: 'rgba(255,255,255,0.08)', color: COLORS.text,
+                      border: '1px solid ' + COLORS.border, borderRadius: 4,
+                      padding: '4px 12px', fontSize: 10, fontWeight: 600,
+                      cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace"
+                    }}
+                  >Mark Reviewed</button>
+                </div>
+              )}
+              {!g.hasHigh && (
+                <div style={{ marginTop: 10, textAlign: 'right' }}>
+                  <button
+                    onClick={() => handleAcknowledge(g.position_id)}
+                    style={{
+                      background: 'rgba(255,255,255,0.08)', color: COLORS.text,
+                      border: '1px solid ' + COLORS.border, borderRadius: 4,
+                      padding: '4px 12px', fontSize: 10, fontWeight: 600,
+                      cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace"
+                    }}
+                  >Mark Reviewed</button>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* No new alerts notice */}
+      {!loading && !error && alertGroups.length === 0 && queueGroups.length > 0 && (
+        <div style={{
+          padding: '8px 14px', fontSize: 11, color: COLORS.textDim,
+          fontFamily: "'JetBrains Mono', monospace", opacity: 0.6, marginBottom: 12
+        }}>
+          No new alerts
+        </div>
+      )}
+
+      {/* SECTION B: ACTION QUEUE */}
+      {!loading && !error && queueGroups.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700,
+            letterSpacing: 2, color: COLORS.amber, textTransform: 'uppercase', marginBottom: 2
+          }}>ACTION QUEUE</div>
+          <div style={{
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: COLORS.textDim,
+            marginBottom: 8
+          }}>Reviewed -- awaiting your decision</div>
+          {queueGroups.map(g => (
+            <Card key={g.position_id} style={{
+              marginBottom: 10,
+              borderColor: COLORS.amber + '60',
+              borderLeft: '3px solid ' + COLORS.amber
+            }}>
+              {renderCardHeader(g)}
+              {renderLegsTable(g)}
+              {renderBounce(g)}
+
+              {/* Action input + buttons */}
+              <div style={{
+                marginTop: 10, padding: '8px 0', borderTop: '1px solid ' + COLORS.border
+              }}>
+                <input
+                  type="text"
+                  placeholder="Note your decision (e.g. holding through Mar 28)"
+                  value={actionNotes[g.position_id] || ''}
+                  onChange={e => setActionNotes(prev => ({ ...prev, [g.position_id]: e.target.value }))}
+                  style={{
+                    width: '100%', background: '#0a0e14', border: '1px solid #1e293b',
+                    borderRadius: 4, padding: '6px 10px', fontSize: 11, color: '#c8cad4',
+                    fontFamily: "'JetBrains Mono', monospace", outline: 'none',
+                    marginBottom: 6, boxSizing: 'border-box'
+                  }}
+                />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+                  <button
+                    onClick={() => handleResetToAlert(g.position_id)}
+                    style={{
+                      background: 'transparent', border: '1px solid #5a5e72',
+                      color: '#5a5e72', fontSize: 10, padding: '4px 10px',
+                      borderRadius: 4, cursor: 'pointer',
+                      fontFamily: "'JetBrains Mono', monospace", fontWeight: 600
+                    }}
+                  >Reset to Alert</button>
+                  <button
+                    onClick={() => handleLogAction(g)}
+                    style={{
+                      background: 'rgba(245,158,11,0.15)', border: '1px solid #f59e0b',
+                      color: '#f59e0b', fontSize: 10, padding: '4px 12px',
+                      borderRadius: 4, cursor: 'pointer',
+                      fontFamily: "'JetBrains Mono', monospace", fontWeight: 700,
+                      whiteSpace: 'nowrap', letterSpacing: 0.5
+                    }}
+                  >Log Action + Clear</button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* SECTION C: All clear */}
+      {!loading && !error && alertGroups.length === 0 && queueGroups.length === 0 && (
         <div style={{
           padding: '10px 14px', fontSize: 12, color: COLORS.greenDim,
           fontFamily: "'JetBrains Mono', monospace", opacity: 0.7
         }}>
-          All positions nominal — no alerts
+          All positions nominal -- no alerts or pending actions
         </div>
       )}
 
-      {groups.map(g => (
-        <Card key={g.position_id} style={{
-          marginBottom: 10,
-          borderColor: stateBorderColor(g.guardian_state),
-          borderLeft: `3px solid ${stateBorderColor(g.guardian_state)}`
+      {/* Column missing notice */}
+      {colMissing && (
+        <div style={{
+          marginTop: 8, padding: '8px 12px', borderRadius: 4,
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+          fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#fbbf24'
         }}>
-          {/* Card header */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span style={{
-              fontFamily: "'JetBrains Mono', monospace", background: '#92400e',
-              padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 700, color: '#fff'
-            }}>{g.ticker}</span>
-            <span style={{
-              padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 700,
-              letterSpacing: 0.5, color: stateColor(g.guardian_state),
-              background: `${stateColor(g.guardian_state)}15`,
-              border: `1px solid ${stateColor(g.guardian_state)}30`
-            }}>{g.guardian_state}</span>
-          </div>
-
-          {/* Legs table */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {g.legs.map((leg, i) => {
-              const apStyle = actionPillStyle(leg.action);
-              const isClose = leg.action === 'CLOSE_BEFORE_DECAY';
-              return (
-                <div key={leg.id || i} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px',
-                  fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
-                  borderLeft: isClose ? `2px solid ${COLORS.red}` : '2px solid transparent',
-                  background: isClose ? 'rgba(255,23,68,0.04)' : 'transparent',
-                  borderRadius: 2
-                }}>
-                  <span style={{
-                    padding: '1px 7px', borderRadius: 3, fontSize: 9, fontWeight: 700,
-                    letterSpacing: 0.3, whiteSpace: 'nowrap', minWidth: 90, textAlign: 'center',
-                    ...apStyle
-                  }}>{leg.action}</span>
-                  <span style={{ color: COLORS.text, minWidth: 80 }}>{leg.leg_type}</span>
-                  <span style={{ color: COLORS.text, minWidth: 50 }}>{leg.strike}</span>
-                  <span style={{ color: COLORS.textDim, minWidth: 80 }}>{leg.expiry}</span>
-                  <span style={{ color: dteColor(leg.days_to_expiry), minWidth: 45 }}>
-                    DTE:{leg.days_to_expiry}
-                  </span>
-                  <span style={{ color: COLORS.textDim, fontSize: 10, flex: 1 }}>{leg.reason}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Bounce exit level */}
-          {g.bounce_exit_level && (
-            <div style={{
-              marginTop: 8, padding: '4px 8px', fontSize: 10,
-              color: COLORS.amberDim, fontFamily: "'JetBrains Mono', monospace", opacity: 0.8
-            }}>
-              Bounce exit reference: ${g.bounce_exit_level} — consider closing near-term hedges if price reaches this level
-            </div>
-          )}
-
-          {/* High urgency footer */}
-          {g.hasHigh && (
-            <div style={{
-              marginTop: 10, padding: '8px 12px', borderRadius: 4,
-              background: 'rgba(255,23,68,0.08)', border: `1px solid ${COLORS.red}30`,
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-            }}>
-              <span style={{ color: COLORS.red, fontSize: 11, fontWeight: 600 }}>
-                ⚠ Action required — review before market open
-              </span>
-              <button
-                onClick={() => handleAcknowledge(g.position_id)}
-                style={{
-                  background: 'rgba(255,255,255,0.08)', color: COLORS.text,
-                  border: `1px solid ${COLORS.border}`, borderRadius: 4,
-                  padding: '4px 12px', fontSize: 10, fontWeight: 600,
-                  cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace"
-                }}
-              >Mark Reviewed</button>
-            </div>
-          )}
-        </Card>
-      ))}
+          Run in Supabase SQL editor:<br/>
+          <span style={{ color: COLORS.text, fontSize: 9 }}>
+            ALTER TABLE public.guardian_position_state ADD COLUMN IF NOT EXISTS action_logged BOOLEAN NOT NULL DEFAULT false;
+          </span>
+        </div>
+      )}
     </div>
   );
 };
