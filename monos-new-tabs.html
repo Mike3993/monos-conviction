@@ -1991,6 +1991,7 @@ function generateVolSurfaceMock() {
 function VolSurfaceTab({ selectedTicker: propTicker, setSelectedTicker: propSetTicker, engineData, tickerUniverse }) {
   const [rows, setRows] = useState([]);
   const [symData, setSymData] = React.useState([]);
+  const [conflicts, setConflicts] = React.useState({});
   const [loading, setLoading] = useState(true);
   const [localTicker, setLocalTicker] = useState("SLV");
   const selectedTicker = propTicker || localTicker;
@@ -2012,6 +2013,16 @@ function VolSurfaceTab({ selectedTicker: propTicker, setSelectedTicker: propSetT
     setLoading(true);
     const sb = getDataSupabase();
     if (sb) {
+      // Fetch conflict_states
+      sb.from('conflict_states')
+        .select('*')
+        .order('run_ts', { ascending: false })
+        .limit(20)
+        .then(({ data }) => {
+          const cm = {};
+          (data || []).forEach(r => { if (!cm[r.ticker]) cm[r.ticker] = r; });
+          setConflicts(cm);
+        });
       // Fetch symmetry_snapshots (live IV-RV data)
       sb.from('symmetry_snapshots')
         .select('*')
@@ -2174,7 +2185,7 @@ function VolSurfaceTab({ selectedTicker: propTicker, setSelectedTicker: propSetT
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead><tr>
-                <th style={volThStyle}>TICKER</th><th style={volThStyle}>ATM IV</th><th style={volThStyle}>SKEW</th><th style={volThStyle}>TERM STRUCT</th><th style={volThStyle}>IV-RV GAP</th><th style={volThStyle}>HV20</th><th style={volThStyle}>STRADDLE</th><th style={volThStyle}>CONVEXITY</th>
+                <th style={volThStyle}>TICKER</th><th style={volThStyle}>ATM IV</th><th style={volThStyle}>SKEW</th><th style={volThStyle}>TERM STRUCT</th><th style={volThStyle}>IV-RV GAP</th><th style={volThStyle}>HV20</th><th style={volThStyle}>STRADDLE</th><th style={volThStyle}>CONVEXITY</th><th style={volThStyle}>CONFLICT</th>
               </tr></thead>
               <tbody>
                 {rows.map(r => {
@@ -2204,6 +2215,15 @@ function VolSurfaceTab({ selectedTicker: propTicker, setSelectedTicker: propSetT
                     <td style={volTdStyle}>
                       <span style={{ display:'inline-block',fontFamily:"'JetBrains Mono',monospace",fontSize:9,fontWeight:700,padding:'2px 8px',borderRadius:999,color:convColor,background:convBg,letterSpacing:0.5 }}>{convLabel}</span>
                     </td>
+                    <td style={volTdStyle}>{(() => {
+                      const cf = conflicts[r.ticker];
+                      if (!cf) return <span style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:'#5a5e72' }}>--</span>;
+                      const st = cf.conflict_state;
+                      const cfLabel = st === 'ALIGNED' ? 'ALIGNED' : st === 'MIXED' ? 'MIXED' : st === 'CONTRADICTED' ? 'CONFLICT' : st === 'INSUFFICIENT_DATA' ? 'N/A' : '--';
+                      const cfColor = st === 'ALIGNED' ? '#22c55e' : st === 'MIXED' ? '#f59e0b' : st === 'CONTRADICTED' ? '#ef4444' : '#5a5e72';
+                      const cfBg = st === 'ALIGNED' ? 'rgba(34,197,94,0.15)' : st === 'MIXED' ? 'rgba(245,158,11,0.15)' : st === 'CONTRADICTED' ? 'rgba(239,68,68,0.15)' : 'transparent';
+                      return <span style={{ display:'inline-block',fontFamily:"'JetBrains Mono',monospace",fontSize:9,fontWeight:700,padding:'2px 8px',borderRadius:999,color:cfColor,background:cfBg,letterSpacing:0.5 }}>{cfLabel}</span>;
+                    })()}</td>
                   </tr>
                   );
                 })}
