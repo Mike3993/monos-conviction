@@ -1,0 +1,11 @@
+rule_id,chapter,rule_name,rule_type,verdict,confidence,sharpe_delta,influence_cap,structure_policy,hold_policy,score_boost_max,active,notes
+C-MSA-01,CH01,MSA Bullish Regime Gate,C,INTERNAL_PASS,0.857,0.12,0.15,prefer_spread_if_tactical,no_override,0.08,true,Filters LONG when MSA_BEARISH. Strongest on commodities OOS.
+C-MSA-02,CH01,MSA Bearish Regime Gate,C,INTERNAL_PASS,0.857,0.12,0.15,prefer_spread_if_tactical,no_override,0.08,true,Filters SHORT when MSA_BULLISH. Mirror of C-MSA-01.
+C-MSA-03,CH01,MSA Neutral MR Overlay,C,INTERNAL_PASS,0.857,0.12,0.12,conditional_naked_if_mr,hold_max_3d,0.06,true,MSA_NEUTRAL triggers mean reversion. Naked only when expected move > 3% AND confidence > 55. Otherwise spread.
+C-MSA-04,CH01,MSA Position Size Boost,C,INTERNAL_PASS,0.857,0.12,0.10,no_override,no_override,0.05,true,1.5x size when MSA aligned. Confidence multiplier only.
+C-MSA-06,CH01,MSA Cross-Instrument,C,INTERNAL_PASS,0.857,0.12,0.08,no_override,no_override,0.03,true,Validates MSA edge holds across SPY/QQQ/IWM/SMH/GLD/SLV.
+B-SPREAD-01,CH02,Mode-Driven Structure,B,BLOCKED,0.0,0.0,0.0,no_override,no_override,0.0,false,CH02 blocked. Requires CH01 crystallized.
+B-VOL-01,CH03,IV Regime Entry Timing,B,BLOCKED,0.0,0.0,0.0,no_override,no_override,0.0,false,CH03 blocked. Requires CH01+CH02.
+A-GEX-01,CH04,Dealer Positioning Bias,A,BLOCKED,0.0,0.0,0.0,no_override,no_override,0.0,false,CH04 blocked. Requires CH01.
+A-LADDER-01,CH05,Confidence-Tiered Ladder,A,BLOCKED,0.0,0.0,0.0,no_override,no_override,0.0,false,CH05 blocked. Requires CH01+CH02+CH03.
+A-SNIPER-01,CH06,Confluent Entry Timing,A,BLOCKED,0.0,0.0,0.0,no_override,no_override,0.0,false,CH06 blocked. All prior chapters required.

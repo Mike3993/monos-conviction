@@ -244,26 +244,6 @@
   .canon-badge.green { background: rgba(0,230,118,0.15); color: var(--green); }
   .canon-badge.amber { background: rgba(255,171,0,0.15); color: var(--amber); }
 
-  /* ── Trade Ideas ──────────────────────────────────────────────── */
-  .signal-long  { color: var(--green); font-weight: 700; }
-  .signal-short { color: var(--red);   font-weight: 700; }
-  .signal-neutral { color: var(--text-muted); }
-
-  .conf-high   { font-weight: 700; color: var(--text-bright); }
-  .conf-mid    { font-weight: 400; color: var(--text-primary); }
-  .conf-low    { font-weight: 400; color: var(--text-muted); opacity: 0.65; }
-
-  .structure-badge {
-    font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
-    padding: 2px 7px; border-radius: 3px;
-    display: inline-block;
-  }
-  .structure-badge.call { background: rgba(0,230,118,0.12); color: var(--green); }
-  .structure-badge.put  { background: rgba(255,82,82,0.12);  color: var(--red); }
-  .structure-badge.none { background: rgba(107,125,153,0.12); color: var(--text-muted); }
-
-  .time-cell { color: var(--text-muted); font-size: 10.5px; }
-
   /* ── Scrollbar ─────────────────────────────────────────────────── */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -288,7 +268,6 @@
     <button class="tab-btn" data-tab="conviction">Conviction</button>
     <button class="tab-btn" data-tab="briefing">Briefing</button>
     <button class="tab-btn active" data-tab="msa-lens">MSA Lens</button>
-    <button class="tab-btn" data-tab="trade-ideas">Trade Ideas</button>
     <button class="tab-btn" data-tab="logs">Logs</button>
   </div>
 
@@ -471,33 +450,6 @@
     </div>
   </div>
 
-  <!-- ── Trade Ideas ──────────────────────────────────────────── -->
-  <div class="tab-content" id="tab-trade-ideas">
-    <div style="padding: 12px 16px; flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-      <div class="panel-header">
-        <div class="panel-title">Trade Ideas</div>
-        <div class="panel-subtitle">Latest signals from MONOS pipeline → convexity_signals</div>
-        <button id="refreshTrades" style="margin-left:auto; background:rgba(255,171,0,0.12); border:1px solid var(--border-accent); color:var(--amber); font-family:var(--mono); font-size:10px; padding:4px 12px; border-radius:3px; cursor:pointer; letter-spacing:0.5px;">REFRESH</button>
-      </div>
-      <div style="flex:1; overflow-y:auto;">
-        <table class="regime-table" id="tradeIdeasTable">
-          <thead>
-            <tr>
-              <th style="width:90px">Ticker</th>
-              <th style="width:100px">Signal</th>
-              <th style="width:110px">Confidence</th>
-              <th style="width:140px">Structure</th>
-              <th style="width:120px">Time</th>
-            </tr>
-          </thead>
-          <tbody id="tradeIdeasBody">
-            <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:40px 0;">Loading trade ideas…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
   <!-- ── Logs ──────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-logs">
     <div class="placeholder">AGENT LOGS — Connect Supabase to populate</div>
@@ -536,91 +488,6 @@
     el.classList.remove(...dotCycle);
     el.classList.add(next);
   }
-
-  /* ── Trade Ideas: Supabase fetch + render ───────────────────── */
-  const SUPABASE_URL = 'https://yivhadyeunfukqvufixg.supabase.co';
-  const SUPABASE_ANON = 'sb_publishable_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpdmhhZHlldW5mdWtxdnVmaXhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1MTQ2ODUsImV4cCI6MjA4OTA5MDY4NX0.Nf2SetHtgTIRhS3F4pX5mPLT9KMN4H63VVUa9xgNQL4';
-
-  function timeAgo(dateStr) {
-    const now = new Date();
-    const then = new Date(dateStr);
-    const diffMs = now - then;
-    const mins = Math.floor(diffMs / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return mins + ' min ago';
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + 'h ago';
-    const days = Math.floor(hrs / 24);
-    return days + 'd ago';
-  }
-
-  function signalClass(signal) {
-    if (signal === 'LONG') return 'signal-long';
-    if (signal === 'SHORT') return 'signal-short';
-    return 'signal-neutral';
-  }
-
-  function confClass(score) {
-    if (score >= 60) return 'conf-high';
-    if (score >= 40) return 'conf-mid';
-    return 'conf-low';
-  }
-
-  function structureBadgeClass(structure) {
-    if (!structure || structure === 'NO_TRADE') return 'none';
-    if (structure.includes('CALL')) return 'call';
-    if (structure.includes('PUT')) return 'put';
-    return 'none';
-  }
-
-  async function fetchTradeIdeas() {
-    const tbody = document.getElementById('tradeIdeasBody');
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:40px 0;">Loading…</td></tr>';
-
-    try {
-      const resp = await fetch(
-        SUPABASE_URL + '/rest/v1/convexity_signals?select=*&order=created_at.desc&limit=20',
-        { headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON } }
-      );
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const rows = await resp.json();
-
-      if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:40px 0;">No trade ideas yet — run the pipeline to generate signals</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = rows.map((r, i) => {
-        const meta = r.metadata || {};
-        const signal = meta.signal || '—';
-        const confidence = r.convexity_score != null ? r.convexity_score : r.signal_strength || 0;
-        const structure = r.structure_type || 'NO_TRADE';
-        const time = r.created_at ? timeAgo(r.created_at) : '—';
-        const rowBg = i % 2 === 0 ? '' : ' style="background:var(--bg-row-alt)"';
-
-        return '<tr' + rowBg + '>' +
-          '<td class="cell-ticker">' + (r.ticker || '—') + '</td>' +
-          '<td class="' + signalClass(signal) + '">' + signal + '</td>' +
-          '<td class="' + confClass(confidence) + '">' + Number(confidence).toFixed(1) + '</td>' +
-          '<td><span class="structure-badge ' + structureBadgeClass(structure) + '">' + structure.replace(/_/g, ' ') + '</span></td>' +
-          '<td class="time-cell">' + time + '</td>' +
-        '</tr>';
-      }).join('');
-    } catch (err) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--red); padding:40px 0;">Error loading trade ideas: ' + err.message + '</td></tr>';
-    }
-  }
-
-  // Fetch on tab activation and on refresh button
-  document.getElementById('refreshTrades').addEventListener('click', fetchTradeIdeas);
-
-  // Auto-fetch when Trade Ideas tab is activated
-  const origTabHandler = document.querySelectorAll('.tab-btn');
-  origTabHandler.forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (btn.dataset.tab === 'trade-ideas') fetchTradeIdeas();
-    });
-  });
 
   /* ── Row Regime Tinting: auto-update on edit ────────────────── */
   const regimeTintMap = {

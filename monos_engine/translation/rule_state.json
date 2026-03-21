@@ -1,0 +1,37 @@
+{
+  "C-MSA-03": {
+    "killed": false,
+    "killed_at": "2026-03-18T22:03:42.010644",
+    "kill_reason": "Test",
+    "revived_at": "2026-03-18T22:03:42.081347",
+    "revive_reason": ""
+  },
+  "C-MSA-01": {
+    "killed": false,
+    "killed_at": "2026-03-18T22:03:57.268653",
+    "kill_reason": "API test",
+    "revived_at": "2026-03-18T22:03:57.281585",
+    "revive_reason": "test done"
+  },
+  "C-MSA-02": {
+    "killed": false,
+    "killed_at": "2026-03-18T22:03:41.995125",
+    "kill_reason": "Test",
+    "revived_at": "2026-03-18T22:03:42.113197",
+    "revive_reason": ""
+  },
+  "C-MSA-04": {
+    "killed": false,
+    "killed_at": "2026-03-18T22:03:42.024246",
+    "kill_reason": "Test",
+    "revived_at": "2026-03-18T22:03:42.130642",
+    "revive_reason": ""
+  },
+  "C-MSA-06": {
+    "killed": false,
+    "killed_at": "2026-03-18T22:03:42.038807",
+    "kill_reason": "Test",
+    "revived_at": "2026-03-18T22:03:42.147309",
+    "revive_reason": ""
+  }
+}

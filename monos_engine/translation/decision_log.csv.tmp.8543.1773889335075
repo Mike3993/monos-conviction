@@ -1,0 +1,1 @@
+timestamp,trade_id,ticker,mode,signal,entry_date,exit_date,original_structure,translated_structure,original_score,adjusted_score,total_boost,matched_rule_ids,rule_count,hold_days,exit_reason,und_return,opt_return,win_flag

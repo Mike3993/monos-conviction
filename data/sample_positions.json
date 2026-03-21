@@ -1,0 +1,20 @@
+{
+  "ladders": [
+    { "ticker": "SPY", "name": "SPY_CORE", "notional": 40700 },
+    { "ticker": "SPY", "name": "SPY_HEDGE", "notional": 18640 },
+    { "ticker": "SLV", "name": "SLV_CORE", "notional": 26193 }
+  ],
+
+  "positions": [
+    { "ticker": "SPY", "asset_class": "options", "state": "ACTIVE" },
+    { "ticker": "SLV", "asset_class": "options", "state": "ACTIVE" }
+  ],
+
+  "position_legs": [
+    { "ticker": "SPY", "leg_type": "LONG_CALL", "strike": 710, "expiration": "2026-06-19" },
+    { "ticker": "SPY", "leg_type": "LONG_CALL", "strike": 720, "expiration": "2026-06-19" },
+    { "ticker": "SPY", "leg_type": "LONG_CALL", "strike": 790, "expiration": "2026-12-18" },
+    { "ticker": "SPY", "leg_type": "LONG_CALL", "strike": 800, "expiration": "2026-12-18" },
+    { "ticker": "SLV", "leg_type": "LONG_CALL", "strike": 85, "expiration": "2026-06-19" }
+  ]
+}
