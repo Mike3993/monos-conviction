@@ -1,0 +1,64 @@
+{
+  "chapters": [
+    {
+      "id": "CH01",
+      "name": "MSA Regime Classification",
+      "status": "testing",
+      "depends_on": [],
+      "tyler_required": true,
+      "rules": ["C-MSA-01", "C-MSA-02", "C-MSA-03", "C-MSA-04", "C-MSA-06"],
+      "description": "Market Structure Analysis — 50-day SMA + 20-day slope regime classification. Determines BULLISH / BEARISH / NEUTRAL. Foundation layer for all downstream filters and position sizing. Tyler validation required for live MSA state vs backtest proxy comparison."
+    },
+    {
+      "id": "CH02",
+      "name": "Structure Selection & Spread Logic",
+      "status": "blocked",
+      "depends_on": ["CH01"],
+      "tyler_required": false,
+      "rules": ["B-SPREAD-01"],
+      "description": "Options structure routing — spread vs naked selection based on mode config. Includes TACTICAL spreads, CONVEX naked, HYBRID conditional. Requires CH01 crystallized so MSA regime is trusted before structure decisions layer on top."
+    },
+    {
+      "id": "CH03",
+      "name": "Volatility Overlay & IV Surface",
+      "status": "blocked",
+      "depends_on": ["CH01", "CH02"],
+      "tyler_required": true,
+      "rules": ["B-VOL-01"],
+      "description": "Implied volatility regime classification and IV surface analysis. Determines whether current IV is elevated, compressed, or normal relative to historical. Used for entry timing and structure width adjustments. Tyler required for live IV surface validation."
+    },
+    {
+      "id": "CH04",
+      "name": "GEX & Dealer Positioning Context",
+      "status": "blocked",
+      "depends_on": ["CH01"],
+      "tyler_required": true,
+      "rules": ["A-GEX-01"],
+      "description": "Gamma Exposure analysis and dealer positioning context. Identifies SHORT_GAMMA vs LONG_GAMMA dealer states. Feeds into high-conviction classification and directional bias. Tyler required for live GEX computation vs synthetic chain comparison."
+    },
+    {
+      "id": "CH05",
+      "name": "Ladder Construction & Position Sizing",
+      "status": "blocked",
+      "depends_on": ["CH01", "CH02", "CH03"],
+      "tyler_required": false,
+      "rules": ["A-LADDER-01"],
+      "description": "Multi-leg ladder construction for scaling into positions. Defines entry tranches, sizing tiers, and confidence-based allocation. Requires trusted MSA, structure selection, and vol overlay before ladder logic can be validated."
+    },
+    {
+      "id": "CH06",
+      "name": "Sniper Entry Timing",
+      "status": "blocked",
+      "depends_on": ["CH01", "CH02", "CH03", "CH04"],
+      "tyler_required": true,
+      "rules": ["A-SNIPER-01"],
+      "description": "Precision entry timing using combined signal confluence — MSA regime + GEX context + vol state + momentum. The final layer that determines exact entry bars. Tyler required for live signal vs backtest signal alignment testing."
+    }
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "created": "2026-03-18",
+    "governance": "MONOS Canon — governance-first architecture",
+    "notes": "Chapter progression is gated. Each chapter must be crystallized before dependents can open. Type C rules require Tyler pack validation and cannot be simulated from price history alone."
+  }
+}

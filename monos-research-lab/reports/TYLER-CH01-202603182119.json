@@ -1,0 +1,158 @@
+{
+  "pack_id": "TYLER-CH01-202603182119",
+  "chapter": "CH01",
+  "generated": "2026-03-18T21:19:56.481550",
+  "generator": "monos-research-lab",
+  "universe": [
+    "SPY",
+    "QQQ",
+    "IWM",
+    "SMH",
+    "GLD",
+    "SLV"
+  ],
+  "date_range": {
+    "start": "2025-07-01",
+    "end": "2026-03-01"
+  },
+  "tests": [
+    {
+      "rule_id": "C-MSA-01",
+      "rule_name": "MSA Bullish Regime Gate",
+      "rule_type": "C",
+      "hypothesis": "LONG trades filtered when MSA_BEARISH improves win rate by >5pp",
+      "test_description": "Compare live MSA Bullish Regime Gate output against backtest proxy for SPY, QQQ, IWM, SMH, GLD, SLV over validation period.",
+      "expected_outputs": {
+        "per_ticker": {
+          "signal_agreement_pct": "Percentage of days where live and proxy produce the same signal",
+          "signal_count": "Number of signals generated",
+          "return_correlation": "Correlation between live-signal returns and proxy-signal returns"
+        },
+        "aggregate": {
+          "overall_agreement": "Mean agreement across all tickers",
+          "edge_preserved": "Whether live signals preserve the backtest edge (Sharpe > 0)"
+        }
+      },
+      "pass_criteria": {
+        "signal_agreement_pct": ">= 80%",
+        "return_correlation": ">= 0.70",
+        "edge_preserved": true
+      }
+    },
+    {
+      "rule_id": "C-MSA-02",
+      "rule_name": "MSA Bearish Regime Gate",
+      "rule_type": "C",
+      "hypothesis": "SHORT trades filtered when MSA_BULLISH improves win rate by >5pp",
+      "test_description": "Compare live MSA Bearish Regime Gate output against backtest proxy for SPY, QQQ, IWM, SMH, GLD, SLV over validation period.",
+      "expected_outputs": {
+        "per_ticker": {
+          "signal_agreement_pct": "Percentage of days where live and proxy produce the same signal",
+          "signal_count": "Number of signals generated",
+          "return_correlation": "Correlation between live-signal returns and proxy-signal returns"
+        },
+        "aggregate": {
+          "overall_agreement": "Mean agreement across all tickers",
+          "edge_preserved": "Whether live signals preserve the backtest edge (Sharpe > 0)"
+        }
+      },
+      "pass_criteria": {
+        "signal_agreement_pct": ">= 80%",
+        "return_correlation": ">= 0.70",
+        "edge_preserved": true
+      }
+    },
+    {
+      "rule_id": "C-MSA-03",
+      "rule_name": "MSA Neutral Mean Reversion Overlay",
+      "rule_type": "C",
+      "hypothesis": "MSA_NEUTRAL + extended price triggers mean-reversion mode with positive expectancy",
+      "test_description": "Compare live MSA Neutral Mean Reversion Overlay output against backtest proxy for SPY, QQQ, IWM, SMH, GLD, SLV over validation period.",
+      "expected_outputs": {
+        "per_ticker": {
+          "signal_agreement_pct": "Percentage of days where live and proxy produce the same signal",
+          "signal_count": "Number of signals generated",
+          "return_correlation": "Correlation between live-signal returns and proxy-signal returns"
+        },
+        "aggregate": {
+          "overall_agreement": "Mean agreement across all tickers",
+          "edge_preserved": "Whether live signals preserve the backtest edge (Sharpe > 0)"
+        }
+      },
+      "pass_criteria": {
+        "signal_agreement_pct": ">= 80%",
+        "return_correlation": ">= 0.70",
+        "edge_preserved": true
+      }
+    },
+    {
+      "rule_id": "C-MSA-04",
+      "rule_name": "MSA Position Size Boost",
+      "rule_type": "C",
+      "hypothesis": "1.5x position size when MSA aligned with signal direction improves total return without proportional drawdown increase",
+      "test_description": "Compare live MSA Position Size Boost output against backtest proxy for SPY, QQQ, IWM, SMH, GLD, SLV over validation period.",
+      "expected_outputs": {
+        "per_ticker": {
+          "signal_agreement_pct": "Percentage of days where live and proxy produce the same signal",
+          "signal_count": "Number of signals generated",
+          "return_correlation": "Correlation between live-signal returns and proxy-signal returns"
+        },
+        "aggregate": {
+          "overall_agreement": "Mean agreement across all tickers",
+          "edge_preserved": "Whether live signals preserve the backtest edge (Sharpe > 0)"
+        }
+      },
+      "pass_criteria": {
+        "signal_agreement_pct": ">= 80%",
+        "return_correlation": ">= 0.70",
+        "edge_preserved": true
+      }
+    },
+    {
+      "rule_id": "C-MSA-06",
+      "rule_name": "MSA Cross-Instrument Consistency",
+      "rule_type": "C",
+      "hypothesis": "MSA regime classification produces consistent edge across SPY/QQQ/IWM/SMH/GLD/SLV",
+      "test_description": "Compare live MSA Cross-Instrument Consistency output against backtest proxy for SPY, QQQ, IWM, SMH, GLD, SLV over validation period.",
+      "expected_outputs": {
+        "per_ticker": {
+          "signal_agreement_pct": "Percentage of days where live and proxy produce the same signal",
+          "signal_count": "Number of signals generated",
+          "return_correlation": "Correlation between live-signal returns and proxy-signal returns"
+        },
+        "aggregate": {
+          "overall_agreement": "Mean agreement across all tickers",
+          "edge_preserved": "Whether live signals preserve the backtest edge (Sharpe > 0)"
+        }
+      },
+      "pass_criteria": {
+        "signal_agreement_pct": ">= 80%",
+        "return_correlation": ">= 0.70",
+        "edge_preserved": true
+      }
+    }
+  ],
+  "notes": "Type C rules require live infrastructure validation. Backtest proxy uses yfinance historical data. Tyler must run the same rules on live/intraday data and return results in the expected_outputs format.",
+  "return_schema": {
+    "pack_id": "string \u2014 must match this pack_id",
+    "results": [
+      {
+        "rule_id": "string",
+        "per_ticker": {
+          "TICKER": {
+            "signal_agreement_pct": "float",
+            "signal_count": "int",
+            "return_correlation": "float"
+          }
+        },
+        "aggregate": {
+          "overall_agreement": "float",
+          "edge_preserved": "bool"
+        },
+        "pass": "bool",
+        "notes": "string"
+      }
+    ],
+    "completed": "ISO datetime string"
+  }
+}

@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MONOS Conviction Engine</title>
+<style>
+  /* ── Reset & Base ──────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-primary:    #0a0e17;
+    --bg-secondary:  #0f1520;
+    --bg-panel:      #111927;
+    --bg-row:        #131b2b;
+    --bg-row-alt:    #0f1724;
+    --bg-hover:      #1a2540;
+    --border:        #1e2d45;
+    --border-accent: #2a3f65;
+    --text-primary:  #c8d6e5;
+    --text-muted:    #6b7d99;
+    --text-bright:   #e8ecf1;
+    --green:         #00e676;
+    --green-dim:     #1b5e20;
+    --green-tint:    rgba(0,230,118,0.06);
+    --amber:         #ffab00;
+    --amber-dim:     #ff8f00;
+    --amber-tint:    rgba(255,171,0,0.08);
+    --red:           #ff5252;
+    --red-dim:       #b71c1c;
+    --red-tint:      rgba(255,82,82,0.08);
+    --cyan:          #00e5ff;
+    --blue-accent:   #448aff;
+    --mono:          'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --sans:          'Inter', -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  html, body { height: 100%; }
+  body {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.5;
+    overflow: hidden;
+  }
+
+  /* ── App Shell ─────────────────────────────────────────────────── */
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; height: 38px; min-height: 38px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+  }
+  .header-brand {
+    font-size: 13px; font-weight: 700; letter-spacing: 2px;
+    color: var(--amber); text-transform: uppercase;
+  }
+  .header-brand span { color: var(--text-muted); font-weight: 400; font-size: 10px; letter-spacing: 1px; margin-left: 8px; }
+  .header-time { color: var(--text-muted); font-size: 11px; }
+
+  /* ── Tabs ──────────────────────────────────────────────────────── */
+  .tab-bar {
+    display: flex; gap: 0; height: 32px; min-height: 32px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    padding: 0 8px;
+  }
+  .tab-btn {
+    padding: 0 18px; height: 32px; line-height: 32px;
+    background: transparent; border: none; cursor: pointer;
+    font-family: var(--mono); font-size: 11px; font-weight: 500;
+    color: var(--text-muted); letter-spacing: 0.5px;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+  .tab-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.02); }
+  .tab-btn.active {
+    color: var(--amber); border-bottom-color: var(--amber);
+    background: rgba(255,171,0,0.04);
+  }
+
+  /* ── Tab Content ───────────────────────────────────────────────── */
+  .tab-content { flex: 1; overflow: hidden; display: none; flex-direction: column; }
+  .tab-content.active { display: flex; }
+
+  /* ── Placeholder Tabs ──────────────────────────────────────────── */
+  .placeholder {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 13px; letter-spacing: 1px;
+  }
+
+  /* ── MSA Lens Layout ───────────────────────────────────────────── */
+  .msa-lens { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  .msa-panel {
+    flex: 1; overflow-y: auto; padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .msa-panel:last-of-type { border-bottom: none; }
+
+  .panel-header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--amber);
+  }
+  .panel-subtitle {
+    font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px;
+  }
+
+  /* ── Panel 1: Position Regime Monitor ──────────────────────────── */
+  .regime-table { width: 100%; border-collapse: collapse; }
+  .regime-table th {
+    text-align: left; padding: 6px 10px;
+    font-size: 10px; font-weight: 600; letter-spacing: 1px;
+    color: var(--text-muted); text-transform: uppercase;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-accent);
+    position: sticky; top: 0; z-index: 1;
+  }
+  .regime-table td {
+    padding: 7px 10px; font-size: 11.5px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    outline: none;
+    transition: background 0.15s;
+  }
+  .regime-table td:focus {
+    background: rgba(68,138,255,0.1);
+    box-shadow: inset 0 0 0 1px var(--blue-accent);
+  }
+  .regime-table tr:hover td { background: var(--bg-hover); }
+
+  .regime-table tr.row-intact td { background: var(--green-tint); }
+  .regime-table tr.row-intact:hover td { background: rgba(0,230,118,0.12); }
+  .regime-table tr.row-watch td { background: var(--amber-tint); }
+  .regime-table tr.row-watch:hover td { background: rgba(255,171,0,0.14); }
+  .regime-table tr.row-threatened td { background: var(--red-tint); }
+  .regime-table tr.row-threatened:hover td { background: rgba(255,82,82,0.14); }
+
+  .regime-table .cell-ticker { font-weight: 700; color: var(--cyan); }
+  .regime-table .cell-structure .arrow-up { color: var(--green); }
+  .regime-table .cell-structure .arrow-dn { color: var(--red); }
+  .regime-table .cell-momentum { color: var(--amber); }
+  .regime-table .cell-regime { color: var(--green); font-weight: 600; letter-spacing: 0.5px; }
+  .regime-table .cell-canon {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
+    padding: 2px 7px; border-radius: 3px;
+    background: rgba(255,171,0,0.12); color: var(--amber);
+    display: inline-block;
+  }
+
+  /* ── Panel 2: Regime Flip Gates ────────────────────────────────── */
+  .gates-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .gates-col { }
+  .gates-col-header {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; padding: 6px 10px; margin-bottom: 6px;
+    border-bottom: 2px solid;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .gates-col-header.upside { color: var(--amber); border-color: var(--amber-dim); }
+  .gates-col-header.risk { color: var(--red); border-color: var(--red-dim); }
+
+  .gate-row {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 7px 10px; border-radius: 4px;
+    margin-bottom: 2px;
+    transition: background 0.12s;
+  }
+  .gate-row:hover { background: var(--bg-hover); }
+
+  .gate-dot {
+    width: 10px; height: 10px; min-width: 10px;
+    border-radius: 50%; margin-top: 3px;
+    cursor: pointer; transition: all 0.15s;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .gate-dot.grey  { background: #4a5568; }
+  .gate-dot.amber { background: var(--amber); box-shadow: 0 0 6px rgba(255,171,0,0.4); }
+  .gate-dot.red   { background: var(--red); box-shadow: 0 0 6px rgba(255,82,82,0.4); }
+  .gate-dot.green { background: var(--green); box-shadow: 0 0 6px rgba(0,230,118,0.4); }
+
+  .gate-text {
+    flex: 1; font-size: 11.5px; color: var(--text-primary);
+    outline: none; line-height: 1.4;
+  }
+  .gate-text:focus {
+    background: rgba(68,138,255,0.08);
+    box-shadow: inset 0 0 0 1px var(--blue-accent);
+    border-radius: 2px;
+  }
+
+  .gate-tag {
+    font-size: 9.5px; font-weight: 600; letter-spacing: 0.5px;
+    padding: 2px 6px; border-radius: 3px;
+    white-space: nowrap; margin-top: 2px;
+    background: rgba(255,171,0,0.12); color: var(--amber);
+  }
+
+  .badge-hypothesis {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.8px;
+    padding: 2px 6px; border-radius: 3px; margin-left: 6px;
+    background: rgba(255,171,0,0.18); color: var(--amber);
+    text-transform: uppercase; vertical-align: middle;
+  }
+
+  /* ── Bottom Status Strip ───────────────────────────────────────── */
+  .msa-status-strip {
+    display: flex; align-items: center; gap: 12px;
+    height: 30px; min-height: 30px; padding: 0 16px;
+    background: #080c14;
+    border-top: 1px solid var(--border);
+    font-size: 10.5px; color: var(--text-muted);
+    overflow-x: auto; white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .msa-status-strip .strip-label {
+    font-weight: 700; color: var(--amber); letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .msa-status-strip .strip-sep {
+    color: var(--border-accent); font-size: 14px; line-height: 1;
+  }
+  .msa-status-strip .strip-ticker {
+    color: var(--text-primary);
+  }
+  .msa-status-strip .strip-price {
+    color: var(--cyan); font-weight: 600;
+  }
+  .canon-badge {
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px;
+    padding: 2px 7px; border-radius: 3px;
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+  .canon-badge.green { background: rgba(0,230,118,0.15); color: var(--green); }
+  .canon-badge.amber { background: rgba(255,171,0,0.15); color: var(--amber); }
+
+  /* ── Trade Ideas ──────────────────────────────────────────────── */
+  .signal-long  { color: var(--green); font-weight: 700; }
+  .signal-short { color: var(--red);   font-weight: 700; }
+  .signal-neutral { color: var(--text-muted); }
+
+  .conf-high   { font-weight: 700; color: var(--text-bright); }
+  .conf-mid    { font-weight: 400; color: var(--text-primary); }
+  .conf-low    { font-weight: 400; color: var(--text-muted); opacity: 0.65; }
+
+  .structure-badge {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
+    padding: 2px 7px; border-radius: 3px;
+    display: inline-block;
+  }
+  .structure-badge.call { background: rgba(0,230,118,0.12); color: var(--green); }
+  .structure-badge.put  { background: rgba(255,82,82,0.12);  color: var(--red); }
+  .structure-badge.none { background: rgba(107,125,153,0.12); color: var(--text-muted); }
+
+  .time-cell { color: var(--text-muted); font-size: 10.5px; }
+
+  /* ── Scrollbar ─────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a5580; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ────────────────────────────────────────────────── -->
+  <div class="header">
+    <div class="header-brand">MONOS<span>Conviction Engine v1.0</span></div>
+    <div class="header-time" id="headerTime"></div>
+  </div>
+
+  <!-- ── Tab Bar ───────────────────────────────────────────────── -->
+  <div class="tab-bar">
+    <button class="tab-btn" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="portfolio">Portfolio</button>
+    <button class="tab-btn" data-tab="greeks">Greeks</button>
+    <button class="tab-btn" data-tab="conviction">Conviction</button>
+    <button class="tab-btn" data-tab="briefing">Briefing</button>
+    <button class="tab-btn active" data-tab="msa-lens">MSA Lens</button>
+    <button class="tab-btn" data-tab="trade-ideas">Trade Ideas</button>
+    <button class="tab-btn" data-tab="logs">Logs</button>
+  </div>
+
+  <!-- ── Dashboard ─────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-dashboard">
+    <div class="placeholder">DASHBOARD — Connect Supabase to populate</div>
+  </div>
+
+  <!-- ── Portfolio ─────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-portfolio">
+    <div class="placeholder">PORTFOLIO — Connect Supabase to populate</div>
+  </div>
+
+  <!-- ── Greeks ────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-greeks">
+    <div class="placeholder">GREEKS — Connect Supabase to populate</div>
+  </div>
+
+  <!-- ── Conviction ────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-conviction">
+    <div class="placeholder">CONVICTION MAP — Connect Supabase to populate</div>
+  </div>
+
+  <!-- ── Briefing ──────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-briefing">
+    <div class="placeholder">BRIEFING — Connect Supabase to populate</div>
+  </div>
+
+  <!-- ── MSA Lens ──────────────────────────────────────────────── -->
+  <div class="tab-content active" id="tab-msa-lens">
+    <div class="msa-lens">
+
+      <!-- Panel 1: Position Regime Monitor -->
+      <div class="msa-panel" style="flex: 0 0 auto; max-height: 45%;">
+        <div class="panel-header">
+          <div class="panel-title">Position Regime Monitor</div>
+          <div class="panel-subtitle">40-wk structure + daily momentum overlay</div>
+        </div>
+        <table class="regime-table" id="regimeTable">
+          <thead>
+            <tr>
+              <th style="width:80px">Ticker</th>
+              <th style="width:140px">40-Wk Structure</th>
+              <th style="width:160px">Daily Momentum Age</th>
+              <th style="width:200px">Key Level</th>
+              <th style="width:130px">Regime Status</th>
+              <th style="width:110px">Canon Rule</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="row-intact" data-regime="intact">
+              <td class="cell-ticker" contenteditable="true">SLV</td>
+              <td contenteditable="true">INTACT <span class="arrow-up">▲</span></td>
+              <td class="cell-momentum" contenteditable="true">Day 4 ↓</td>
+              <td contenteditable="true">$80 flip abort</td>
+              <td class="cell-regime" contenteditable="true">SECULAR BULL</td>
+              <td><span class="cell-canon" contenteditable="true">MSA-TOP-04</span></td>
+            </tr>
+            <tr class="row-intact" data-regime="intact">
+              <td class="cell-ticker" contenteditable="true">SIL</td>
+              <td contenteditable="true">INTACT <span class="arrow-up">▲</span></td>
+              <td class="cell-momentum" contenteditable="true">Day 4 ↓</td>
+              <td contenteditable="true">$96.20 upturn hint</td>
+              <td class="cell-regime" contenteditable="true">SECULAR BULL</td>
+              <td><span class="cell-canon" contenteditable="true">MSA-AGE-02</span></td>
+            </tr>
+            <tr class="row-intact" data-regime="intact">
+              <td class="cell-ticker" contenteditable="true">GDX</td>
+              <td contenteditable="true">INTACT <span class="arrow-up">▲</span></td>
+              <td class="cell-momentum" contenteditable="true">Day 4 ↓</td>
+              <td contenteditable="true">$95.40 upturn hint</td>
+              <td class="cell-regime" contenteditable="true">SECULAR BULL</td>
+              <td><span class="cell-canon" contenteditable="true">MSA-AGE-02</span></td>
+            </tr>
+            <tr class="row-intact" data-regime="intact">
+              <td class="cell-ticker" contenteditable="true">Silver</td>
+              <td contenteditable="true">INTACT <span class="arrow-up">▲</span></td>
+              <td class="cell-momentum" contenteditable="true">Day 4 ↓</td>
+              <td contenteditable="true">$78 bear threshold</td>
+              <td class="cell-regime" contenteditable="true">SECULAR BULL</td>
+              <td><span class="cell-canon" contenteditable="true">MSA-AGE-02</span></td>
+            </tr>
+            <tr class="row-intact" data-regime="intact">
+              <td class="cell-ticker" contenteditable="true">Gold</td>
+              <td contenteditable="true">NEW REALITY</td>
+              <td class="cell-momentum" contenteditable="true">Day 4 ↓</td>
+              <td contenteditable="true">$5,300 lid level</td>
+              <td class="cell-regime" contenteditable="true">SECULAR BULL</td>
+              <td><span class="cell-canon" contenteditable="true">MSA-TOP-05</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Panel 2: Regime Flip Gates -->
+      <div class="msa-panel" style="flex: 1 1 auto;">
+        <div class="panel-header">
+          <div class="panel-title">Regime Flip Gates</div>
+          <div class="panel-subtitle">click status dots to cycle: grey → amber → red → green → grey</div>
+        </div>
+
+        <div class="gates-grid">
+          <!-- Upside Gates -->
+          <div class="gates-col">
+            <div class="gates-col-header upside">
+              <span>▲</span> Upside Gates
+            </div>
+            <div class="gate-row">
+              <div class="gate-dot grey" onclick="cycleDot(this)"></div>
+              <div class="gate-text" contenteditable="true">Gold > $5,300 daily close</div>
+              <div class="gate-tag">MSA-TOP-05</div>
+            </div>
+            <div class="gate-row">
+              <div class="gate-dot grey" onclick="cycleDot(this)"></div>
+              <div class="gate-text" contenteditable="true">Silver recaptures $90 seller failure</div>
+              <div class="gate-tag">MSA-AGE-02</div>
+            </div>
+            <div class="gate-row">
+              <div class="gate-dot grey" onclick="cycleDot(this)"></div>
+              <div class="gate-text" contenteditable="true">SIL > $96.20 Monday upturn</div>
+              <div class="gate-tag">MSA-AGE-02</div>
+            </div>
+            <div class="gate-row">
+              <div class="gate-dot grey" onclick="cycleDot(this)"></div>
+              <div class="gate-text" contenteditable="true">Silver/Gold spread expanding — ladder add zone</div>
+              <div class="gate-tag">MSA-USE-03</div>
+            </div>
+          </div>
+
+          <!-- Structural Risk Gates -->
+          <div class="gates-col">
+            <div class="gates-col-header risk">
+              <span>▼</span> Structural Risk Gates
+            </div>
+            <div class="gate-row">
+              <div class="gate-dot grey" onclick="cycleDot(this)"></div>
+              <div class="gate-text" contenteditable="true">S&P monthly close < 6,420 annual momentum break</div>
+              <div class="gate-tag">MSA-SIG-03</div>
+            </div>
+            <div class="gate-row">
+              <div class="gate-dot grey" onclick="cycleDot(this)"></div>
+              <div class="gate-text" contenteditable="true">S&P monthly close < 6,487 quarterly structure</div>
+              <div class="gate-tag">MSA-SIG-03</div>
+            </div>
+            <div class="gate-row">
+              <div class="gate-dot grey" onclick="cycleDot(this)"></div>
+              <div class="gate-text" contenteditable="true">T-Bond level TBD — MACRO-01</div>
+              <div class="gate-tag">MSA-MACRO-01</div>
+              <span class="badge-hypothesis">HYPOTHESIS</span>
+            </div>
+            <div class="gate-row">
+              <div class="gate-dot grey" onclick="cycleDot(this)"></div>
+              <div class="gate-text" contenteditable="true">40-wk silver structure threatened</div>
+              <div class="gate-tag">MSA-TOP-04</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Status Strip -->
+      <div class="msa-status-strip">
+        <span class="strip-label">MSA 360°</span>
+        <span class="strip-sep">│</span>
+        <span>March 15, 2026</span>
+        <span class="strip-sep">│</span>
+        <span class="strip-ticker">Gold</span> <span class="strip-price">$5,061</span>
+        <span class="strip-sep">│</span>
+        <span class="strip-ticker">Silver</span> <span class="strip-price">$81.34</span>
+        <span class="strip-sep">│</span>
+        <span class="strip-ticker">GDX</span> <span class="strip-price">$93.26</span>
+        <span class="strip-sep">│</span>
+        <span class="strip-ticker">SIL</span> <span class="strip-price">$94.30</span>
+        <span class="strip-sep">│</span>
+        <span class="canon-badge green">TOP-05 ✓</span>
+        <span class="canon-badge green">TOP-06 ✓</span>
+        <span class="canon-badge green">COST-01 ✓</span>
+        <span class="canon-badge amber">MACRO-01 ⚠ HYPOTHESIS</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Trade Ideas ──────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-trade-ideas">
+    <div style="padding: 12px 16px; flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+      <div class="panel-header">
+        <div class="panel-title">Trade Ideas</div>
+        <div class="panel-subtitle">Latest signals from MONOS pipeline → convexity_signals</div>
+        <button id="refreshTrades" style="margin-left:auto; background:rgba(255,171,0,0.12); border:1px solid var(--border-accent); color:var(--amber); font-family:var(--mono); font-size:10px; padding:4px 12px; border-radius:3px; cursor:pointer; letter-spacing:0.5px;">REFRESH</button>
+      </div>
+      <div style="flex:1; overflow-y:auto;">
+        <table class="regime-table" id="tradeIdeasTable">
+          <thead>
+            <tr>
+              <th style="width:90px">Ticker</th>
+              <th style="width:100px">Signal</th>
+              <th style="width:110px">Confidence</th>
+              <th style="width:140px">Structure</th>
+              <th style="width:120px">Time</th>
+            </tr>
+          </thead>
+          <tbody id="tradeIdeasBody">
+            <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:40px 0;">Loading trade ideas…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Logs ──────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-logs">
+    <div class="placeholder">AGENT LOGS — Connect Supabase to populate</div>
+  </div>
+
+</div>
+
+<script>
+  /* ── Clock ──────────────────────────────────────────────────── */
+  function updateClock() {
+    const now = new Date();
+    const opts = { weekday:'short', month:'short', day:'numeric', year:'numeric',
+                   hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false };
+    document.getElementById('headerTime').textContent = now.toLocaleDateString('en-US', opts);
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  /* ── Tab Switching ──────────────────────────────────────────── */
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  /* ── Cycle Dot Colors ───────────────────────────────────────── */
+  const dotCycle = ['grey', 'amber', 'red', 'green'];
+
+  function cycleDot(el) {
+    const current = dotCycle.find(c => el.classList.contains(c)) || 'grey';
+    const idx = dotCycle.indexOf(current);
+    const next = dotCycle[(idx + 1) % dotCycle.length];
+    el.classList.remove(...dotCycle);
+    el.classList.add(next);
+  }
+
+  /* ── Trade Ideas: Supabase fetch + render ───────────────────── */
+  const SUPABASE_URL = 'https://yivhadyeunfukqvufixg.supabase.co';
+  const SUPABASE_ANON = 'sb_publishable_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpdmhhZHlldW5mdWtxdnVmaXhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1MTQ2ODUsImV4cCI6MjA4OTA5MDY4NX0.Nf2SetHtgTIRhS3F4pX5mPLT9KMN4H63VVUa9xgNQL4';
+
+  function timeAgo(dateStr) {
+    const now = new Date();
+    const then = new Date(dateStr);
+    const diffMs = now - then;
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + ' min ago';
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    const days = Math.floor(hrs / 24);
+    return days + 'd ago';
+  }
+
+  function signalClass(signal) {
+    if (signal === 'LONG') return 'signal-long';
+    if (signal === 'SHORT') return 'signal-short';
+    return 'signal-neutral';
+  }
+
+  function confClass(score) {
+    if (score >= 60) return 'conf-high';
+    if (score >= 40) return 'conf-mid';
+    return 'conf-low';
+  }
+
+  function structureBadgeClass(structure) {
+    if (!structure || structure === 'NO_TRADE') return 'none';
+    if (structure.includes('CALL')) return 'call';
+    if (structure.includes('PUT')) return 'put';
+    return 'none';
+  }
+
+  async function fetchTradeIdeas() {
+    const tbody = document.getElementById('tradeIdeasBody');
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:40px 0;">Loading…</td></tr>';
+
+    try {
+      const resp = await fetch(
+        SUPABASE_URL + '/rest/v1/convexity_signals?select=*&order=created_at.desc&limit=20',
+        { headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON } }
+      );
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const rows = await resp.json();
+
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:40px 0;">No trade ideas yet — run the pipeline to generate signals</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = rows.map((r, i) => {
+        const meta = r.metadata || {};
+        const signal = meta.signal || '—';
+        const confidence = r.convexity_score != null ? r.convexity_score : r.signal_strength || 0;
+        const structure = r.structure_type || 'NO_TRADE';
+        const time = r.created_at ? timeAgo(r.created_at) : '—';
+        const rowBg = i % 2 === 0 ? '' : ' style="background:var(--bg-row-alt)"';
+
+        return '<tr' + rowBg + '>' +
+          '<td class="cell-ticker">' + (r.ticker || '—') + '</td>' +
+          '<td class="' + signalClass(signal) + '">' + signal + '</td>' +
+          '<td class="' + confClass(confidence) + '">' + Number(confidence).toFixed(1) + '</td>' +
+          '<td><span class="structure-badge ' + structureBadgeClass(structure) + '">' + structure.replace(/_/g, ' ') + '</span></td>' +
+          '<td class="time-cell">' + time + '</td>' +
+        '</tr>';
+      }).join('');
+    } catch (err) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--red); padding:40px 0;">Error loading trade ideas: ' + err.message + '</td></tr>';
+    }
+  }
+
+  // Fetch on tab activation and on refresh button
+  document.getElementById('refreshTrades').addEventListener('click', fetchTradeIdeas);
+
+  // Auto-fetch when Trade Ideas tab is activated
+  const origTabHandler = document.querySelectorAll('.tab-btn');
+  origTabHandler.forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.tab === 'trade-ideas') fetchTradeIdeas();
+    });
+  });
+
+  /* ── Row Regime Tinting: auto-update on edit ────────────────── */
+  const regimeTintMap = {
+    'intact':     'row-intact',
+    'watch':      'row-watch',
+    'threatened': 'row-threatened',
+  };
+
+  document.getElementById('regimeTable').addEventListener('input', (e) => {
+    const row = e.target.closest('tr');
+    if (!row) return;
+
+    // Check the "40-Wk Structure" column (2nd cell) for keywords
+    const structureCell = row.cells[1];
+    if (!structureCell) return;
+    const text = structureCell.textContent.toUpperCase();
+
+    // Remove existing tint classes
+    row.classList.remove('row-intact', 'row-watch', 'row-threatened');
+
+    if (text.includes('THREATENED') || text.includes('BROKEN') || text.includes('FAIL')) {
+      row.classList.add('row-threatened');
+      row.dataset.regime = 'threatened';
+    } else if (text.includes('WATCH') || text.includes('CAUTION') || text.includes('NEW REALITY')) {
+      row.classList.add('row-watch');
+      row.dataset.regime = 'watch';
+    } else if (text.includes('INTACT') || text.includes('BULL')) {
+      row.classList.add('row-intact');
+      row.dataset.regime = 'intact';
+    }
+  });
+</script>
+</body>
+</html>

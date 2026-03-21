@@ -1,0 +1,3 @@
+timestamp,experiment_name,chapter,universe,date_range_start,date_range_end,baseline_name,candidate_name,n_baseline_trades,n_candidate_trades,sharpe_delta,win_rate_delta,max_dd_delta,theta_eff_delta,convexity_retained,scorecard_pass_count,overall_pass,notes
+2026-03-18T21:48:05.098689,CH01_MSA_regime_filter_validation,CH01,SPY|QQQ|IWM|SMH|GLD|SLV,2024-01-01,2026-03-01,no_msa_filter,msa_regime_filter,1116,735,0.12,-0.0018,0.1523,0.0929,True,4,True,REAL DATA + REAL MSA | Hold=2d | IS improved 3/6 | OOS improved 5/6
+2026-03-18T21:49:44.007663,CH01_MSA_regime_filter_validation,CH01,SPY|QQQ|IWM|SMH|GLD|SLV,2024-01-01,2026-03-01,no_msa_filter,msa_regime_filter,1116,735,0.12,-0.0018,0.1523,0.0929,True,4,True,REAL DATA + REAL MSA | Hold=2d | IS improved 3/6 | OOS improved 5/6

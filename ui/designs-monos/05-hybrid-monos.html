@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convexity Engine - Hybrid Pro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #0c0f14;
+            color: #e2e8f0;
+            font-family: 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background-color: #151920;
+            border-bottom: 1px solid #252d3a;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .title-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            color: #22d3ee;
+            margin: 0;
+            letter-spacing: 1px;
+        }
+
+        .live-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: #fb7185;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .live-text {
+            font-size: 0.75rem;
+            color: #fb7185;
+            font-weight: bold;
+            margin-left: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Ticker Tape */
+        .ticker-tape {
+            background: linear-gradient(90deg, #151920 0%, #1a1f2e 50%, #151920 100%);
+            padding: 0.75rem 2rem;
+            border-bottom: 1px solid #252d3a;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .ticker-content {
+            display: inline-flex;
+            gap: 3rem;
+            animation: scroll 30s linear infinite;
+        }
+
+        @keyframes scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        .ticker-item {
+            display: inline-flex;
+            gap: 1rem;
+            align-items: center;
+            font-family: 'Courier New', monospace;
+        }
+
+        .ticker-symbol {
+            color: #22d3ee;
+            font-weight: bold;
+            min-width: 50px;
+        }
+
+        .ticker-price {
+            color: #e2e8f0;
+            min-width: 80px;
+        }
+
+        .ticker-change-up {
+            color: #34d399;
+        }
+
+        .ticker-change-down {
+            color: #fb7185;
+        }
+
+        /* Main Layout */
+        .container {
+            display: flex;
+            height: calc(100vh - 140px);
+        }
+
+        .left-column {
+            flex: 0 0 65%;
+            padding: 1.5rem;
+            overflow-y: auto;
+            border-right: 1px solid #252d3a;
+        }
+
+        .right-column {
+            flex: 0 0 35%;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* Panel */
+        .panel {
+            background-color: #151920;
+            border: 1px solid #252d3a;
+            border-radius: 6px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .panel-title {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #22d3ee;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Heatmap */
+        .heatmap {
+            display: grid;
+            grid-template-columns: 60px repeat(5, 1fr);
+            gap: 6px;
+            margin-bottom: 1rem;
+        }
+
+        .heatmap-cell {
+            padding: 0.6rem;
+            text-align: center;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.8rem;
+            color: #0c0f14;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+
+        .heatmap-cell:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 12px rgba(34, 211, 238, 0.4);
+            z-index: 10;
+        }
+
+        .heatmap-label {
+            background-color: transparent;
+            color: #94a3b8;
+            font-weight: 500;
+            padding: 0.6rem;
+            text-align: right;
+            font-size: 0.75rem;
+        }
+
+        .heatmap-header {
+            background-color: transparent;
+            color: #94a3b8;
+            font-weight: 500;
+            text-align: center;
+            padding: 0.6rem 0;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #0c0f14;
+            border: 1px solid #22d3ee;
+            color: #e2e8f0;
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        .heatmap-cell:hover .tooltip {
+            opacity: 1;
+        }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+        }
+
+        th {
+            background-color: #0c0f14;
+            color: #22d3ee;
+            padding: 0.6rem;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #252d3a;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 0.5rem 0.6rem;
+            border-bottom: 1px solid #252d3a;
+            font-family: 'Courier New', monospace;
+        }
+
+        tr:hover {
+            background-color: #1a1f2e;
+        }
+
+        /* Trades Panel */
+        .trades-mini {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .trade-mini-card {
+            background-color: #0c0f14;
+            border: 1px solid #252d3a;
+            border-left: 4px solid #22d3ee;
+            padding: 0.75rem;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .trade-mini-card:hover {
+            background-color: #1a1f2e;
+            border-left-color: #fbbf24;
+        }
+
+        .trade-rank-badge {
+            display: inline-block;
+            background-color: #22d3ee;
+            color: #0c0f14;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-weight: bold;
+            font-size: 0.7rem;
+            margin-right: 0.5rem;
+        }
+
+        .trade-ticker {
+            color: #fbbf24;
+            font-weight: bold;
+            font-size: 0.95rem;
+        }
+
+        .trade-direction {
+            font-size: 0.8rem;
+            margin-top: 0.25rem;
+        }
+
+        .trade-direction-long {
+            color: #34d399;
+        }
+
+        .trade-direction-short {
+            color: #fb7185;
+        }
+
+        .trade-meta {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+
+        /* Histogram */
+        .histogram {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-around;
+            height: 150px;
+            gap: 4px;
+            padding: 1rem;
+            background-color: #0c0f14;
+            border-radius: 4px;
+            border: 1px solid #252d3a;
+        }
+
+        .bar {
+            flex: 1;
+            background: linear-gradient(180deg, #22d3ee 0%, #06b6d4 100%);
+            border-radius: 3px 3px 0 0;
+            position: relative;
+            min-height: 3px;
+            transition: all 0.2s ease;
+        }
+
+        .bar:hover {
+            background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%);
+            filter: brightness(1.2);
+        }
+
+        .bar-label {
+            position: absolute;
+            bottom: -20px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 0.65rem;
+            color: #94a3b8;
+            font-family: 'Courier New', monospace;
+        }
+
+        /* Surface Grid */
+        .surface-grid {
+            display: grid;
+            grid-template-columns: 60px repeat(5, 1fr);
+            gap: 6px;
+        }
+
+        .surface-cell {
+            padding: 0.6rem;
+            text-align: center;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.8rem;
+            color: #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0c0f14;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #252d3a;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .container {
+                flex-direction: column;
+                height: auto;
+            }
+
+            .left-column {
+                flex: 1;
+                border-right: none;
+                border-bottom: 1px solid #252d3a;
+            }
+
+            .right-column {
+                flex: 1;
+            }
+
+            .ticker-content {
+                gap: 2rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .ticker-tape {
+                padding: 0.5rem 1rem;
+            }
+
+            .panel {
+                padding: 1rem;
+            }
+
+            .heatmap {
+                grid-template-columns: 50px repeat(5, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="title-section">
+            <h1>CONVEXITY ENGINE</h1>
+            <div>
+                <span class="live-indicator"></span>
+                <span class="live-text">Live</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ticker Tape -->
+    <div class="ticker-tape">
+        <div class="ticker-content">
+            <div class="ticker-item">
+                <span class="ticker-symbol">SPY</span>
+                <span class="ticker-price">670.79</span>
+                <span class="ticker-change-up">▲0.42%</span>
+            </div>
+            <div class="ticker-item">
+                <span class="ticker-symbol">QQQ</span>
+                <span class="ticker-price">498.23</span>
+                <span class="ticker-change-up">▲0.31%</span>
+            </div>
+            <div class="ticker-item">
+                <span class="ticker-symbol">GLD</span>
+                <span class="ticker-price">190.78</span>
+                <span class="ticker-change-up">▲1.12%</span>
+            </div>
+            <div class="ticker-item">
+                <span class="ticker-symbol">SLV</span>
+                <span class="ticker-price">28.45</span>
+                <span class="ticker-change-down">▼0.83%</span>
+            </div>
+            <div class="ticker-item">
+                <span class="ticker-symbol">VIX</span>
+                <span class="ticker-price">18.42</span>
+                <span class="ticker-change-down">▼2.1%</span>
+            </div>
+            <!-- Duplicate for infinite scroll effect -->
+            <div class="ticker-item">
+                <span class="ticker-symbol">SPY</span>
+                <span class="ticker-price">670.79</span>
+                <span class="ticker-change-up">▲0.42%</span>
+            </div>
+            <div class="ticker-item">
+                <span class="ticker-symbol">QQQ</span>
+                <span class="ticker-price">498.23</span>
+                <span class="ticker-change-up">▲0.31%</span>
+            </div>
+            <div class="ticker-item">
+                <span class="ticker-symbol">GLD</span>
+                <span class="ticker-price">190.78</span>
+                <span class="ticker-change-up">▲1.12%</span>
+            </div>
+            <div class="ticker-item">
+                <span class="ticker-symbol">SLV</span>
+                <span class="ticker-price">28.45</span>
+                <span class="ticker-change-down">▼0.83%</span>
+            </div>
+            <div class="ticker-item">
+                <span class="ticker-symbol">VIX</span>
+                <span class="ticker-price">18.42</span>
+                <span class="ticker-change-down">▼2.1%</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Left Column: Data Panels -->
+        <div class="left-column">
+            <!-- GEX Heatmap Panel -->
+            <div class="panel">
+                <div class="panel-title">Gamma Exposure Heatmap</div>
+                <div class="heatmap" id="gexHeatmap"></div>
+            </div>
+
+            <!-- Accumulator Histogram -->
+            <div class="panel">
+                <div class="panel-title">Accumulator Distribution</div>
+                <div class="histogram" id="histogram"></div>
+            </div>
+        </div>
+
+        <!-- Right Column: Trades & Controls -->
+        <div class="right-column">
+            <!-- Top Trades -->
+            <div class="panel">
+                <div class="panel-title">Top Trades</div>
+                <div class="trades-mini" id="tradesMini"></div>
+            </div>
+
+            <!-- Batch Results (Compact) -->
+            <div class="panel">
+                <div class="panel-title">Batch Results</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Mode</th>
+                            <th>WR</th>
+                            <th>Wgt</th>
+                        </tr>
+                    </thead>
+                    <tbody id="batchTable"></tbody>
+                </table>
+            </div>
+
+            <!-- OI Surface (Compact) -->
+            <div class="panel">
+                <div class="panel-title">Open Interest Surface</div>
+                <div class="surface-grid" id="oiSurface" style="max-height: 250px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BATCH=[{t:"GLD",mode:"Convex",hold:"5d",wr:100,wgt:132.79,str:"HIGH"},{t:"SLV",mode:"Convex",hold:"2d",wr:66.7,wgt:41.93,str:"HIGH"},{t:"IWM",mode:"Tactical",hold:"2d",wr:75,wgt:25.93,str:"HIGH"},{t:"SPY",mode:"Tactical",hold:"2d",wr:80,wgt:7.54,str:"HIGH"},{t:"SMH",mode:"Hybrid",hold:"10d",wr:75,wgt:5.53,str:"HIGH"},{t:"QQQ",mode:"Tactical",hold:"10d",wr:75,wgt:3.83,str:"MED"}];
+        const TOP=[{r:1,t:"GLD",d:"LONG",s:"LONG_CALL",h:"10-20d",sz:"HIGH"},{r:2,t:"SLV",d:"SHORT",s:"LONG_PUT",h:"10-20d",sz:"HIGH"},{r:3,t:"IWM",d:"LONG",s:"CALL_SPREAD",h:"1-3d",sz:"MED"}];
+        const STRIKES=[650,655,660,665,670,675,680,685,690];
+        const EXPIRIES=["Mar21","Mar28","Apr04","Apr11","Apr17"];
+        const GEX=[[0.8,1.2,0.5,0.3,0.1],[1.5,2.8,1.2,0.8,0.4],[2.1,3.5,2.0,1.1,0.6],[3.8,5.2,3.1,1.8,0.9],[5.5,8.1,4.5,2.5,1.2],[3.2,4.8,2.8,1.5,0.7],[1.8,2.5,1.5,0.9,0.5],[0.9,1.3,0.8,0.5,0.3],[0.4,0.6,0.3,0.2,0.1]];
+        const OI=[[12,18,8,5,2],[25,42,20,12,6],[38,55,30,18,9],[52,78,45,28,14],[85,120,68,40,20],[48,72,42,24,12],[30,45,25,15,8],[15,22,12,8,4],[8,12,6,3,2]];
+        const NGEX=[{s:650,v:0.8},{s:655,v:1.5},{s:660,v:2.1},{s:665,v:3.8},{s:670,v:5.5},{s:675,v:3.2},{s:680,v:1.8},{s:685,v:0.9},{s:690,v:0.4}];
+
+        function getGexColor(value) {
+            const max = 8.1;
+            const ratio = value / max;
+            if (ratio < 0.3) return '#10b981';
+            if (ratio < 0.6) return '#f59e0b';
+            return '#ef4444';
+        }
+
+        function getOiColor(value) {
+            const max = 120;
+            const ratio = value / max;
+            return `rgba(34, 211, 238, ${ratio * 0.8})`;
+        }
+
+        function renderGexHeatmap() {
+            const container = document.getElementById('gexHeatmap');
+            container.innerHTML = '';
+
+            const headerLabel = document.createElement('div');
+            headerLabel.className = 'heatmap-header';
+            headerLabel.textContent = 'Strk';
+            container.appendChild(headerLabel);
+
+            EXPIRIES.forEach(exp => {
+                const header = document.createElement('div');
+                header.className = 'heatmap-header';
+                header.textContent = exp;
+                container.appendChild(header);
+            });
+
+            STRIKES.forEach((strike, i) => {
+                const label = document.createElement('div');
+                label.className = 'heatmap-label';
+                label.textContent = strike;
+                container.appendChild(label);
+
+                GEX[i].forEach(val => {
+                    const cell = document.createElement('div');
+                    cell.className = 'heatmap-cell';
+                    cell.style.backgroundColor = getGexColor(val);
+                    cell.textContent = val.toFixed(1);
+                    const tooltip = document.createElement('div');
+                    tooltip.className = 'tooltip';
+                    tooltip.textContent = `GEX: ${val.toFixed(2)}`;
+                    cell.appendChild(tooltip);
+                    container.appendChild(cell);
+                });
+            });
+        }
+
+        function renderBatch() {
+            const tbody = document.getElementById('batchTable');
+            BATCH.forEach(b => {
+                const row = tbody.insertRow();
+                const str_color = b.str === 'HIGH' ? '#34d399' : '#fbbf24';
+                row.innerHTML = `
+                    <td><strong style="color: #22d3ee;">${b.t}</strong></td>
+                    <td style="font-size: 0.75rem;">${b.mode}</td>
+                    <td>${b.wr}%</td>
+                    <td style="color: ${str_color};">${b.wgt.toFixed(0)}</td>
+                `;
+            });
+        }
+
+        function renderTrades() {
+            const container = document.getElementById('tradesMini');
+            TOP.forEach(t => {
+                const card = document.createElement('div');
+                card.className = 'trade-mini-card';
+                const directionClass = t.d === 'LONG' ? 'trade-direction-long' : 'trade-direction-short';
+                card.innerHTML = `
+                    <div>
+                        <span class="trade-rank-badge">#${t.r}</span>
+                        <span class="trade-ticker">${t.t}</span>
+                    </div>
+                    <div class="trade-direction ${directionClass}">
+                        <strong>${t.d}</strong> • ${t.s}
+                    </div>
+                    <div class="trade-meta">
+                        Hold: ${t.h} | Size: ${t.sz}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function renderHistogram() {
+            const container = document.getElementById('histogram');
+            container.innerHTML = '';
+
+            const maxGex = Math.max(...NGEX.map(x => x.v));
+
+            NGEX.forEach(item => {
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+                const percentage = (item.v / maxGex) * 100;
+                bar.style.height = percentage + '%';
+                bar.innerHTML = `<div class="bar-label">${item.s}</div>`;
+                container.appendChild(bar);
+            });
+        }
+
+        function renderOiSurface() {
+            const container = document.getElementById('oiSurface');
+            container.innerHTML = '';
+
+            const headerLabel = document.createElement('div');
+            headerLabel.className = 'heatmap-header';
+            headerLabel.textContent = 'Strk';
+            container.appendChild(headerLabel);
+
+            EXPIRIES.forEach(exp => {
+                const header = document.createElement('div');
+                header.className = 'heatmap-header';
+                header.textContent = exp;
+                container.appendChild(header);
+            });
+
+            STRIKES.forEach((strike, i) => {
+                const label = document.createElement('div');
+                label.className = 'heatmap-label';
+                label.textContent = strike;
+                container.appendChild(label);
+
+                OI[i].forEach(val => {
+                    const cell = document.createElement('div');
+                    cell.className = 'surface-cell';
+                    cell.style.backgroundColor = getOiColor(val);
+                    cell.textContent = val;
+                    container.appendChild(cell);
+                });
+            });
+        }
+
+        // Initialize
+        renderGexHeatmap();
+        renderHistogram();
+        renderBatch();
+        renderTrades();
+        renderOiSurface();
+    </script>
+</body>
+</html>

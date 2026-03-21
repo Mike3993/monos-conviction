@@ -1,0 +1,47 @@
+{
+  "experiment_name": "CH01_MSA_regime_filter_validation",
+  "version": "1.0",
+  "chapter": "CH01",
+  "hypothesis": "MSA regime filter improves risk-adjusted returns by filtering trades against the dominant trend, reducing losers without significantly reducing winners.",
+  "universe": ["SPY", "QQQ", "IWM", "SMH", "GLD", "SLV"],
+  "date_range": {
+    "in_sample": {
+      "start": "2024-01-01",
+      "end": "2025-06-30"
+    },
+    "out_of_sample": {
+      "start": "2025-07-01",
+      "end": "2026-03-01"
+    }
+  },
+  "baseline": {
+    "name": "no_msa_filter",
+    "description": "All directional signals traded without MSA regime gating",
+    "filters": [],
+    "signal_source": "momentum_combined",
+    "structure": "mode_default"
+  },
+  "combination": {
+    "name": "msa_regime_filter",
+    "description": "Directional signals filtered by MSA regime alignment — LONG blocked in MSA_BEARISH, SHORT blocked in MSA_BULLISH",
+    "filters": ["msa_regime"],
+    "signal_source": "momentum_combined",
+    "regime_filter": "msa_state",
+    "secondary_confirmation": null,
+    "structure": "mode_default"
+  },
+  "forward_return_days": [2, 5, 10, 20],
+  "metrics": {
+    "primary": "sharpe_ratio_delta",
+    "secondary": ["win_rate_delta", "max_drawdown_delta", "theta_efficiency_delta", "convexity_retention"],
+    "minimum_n": 30,
+    "significance_level": 0.05
+  },
+  "tyler_required": true,
+  "tyler_pack_notes": "Requires live MSA state computation on Tyler's infrastructure to compare against backtest proxy MSA. Proxy uses yfinance 50-day SMA + 20-day slope; Tyler uses live intraday data.",
+  "metadata": {
+    "author": "MONOS Research Lab",
+    "created": "2026-03-18",
+    "tags": ["CH01", "MSA", "regime_filter", "foundation"]
+  }
+}

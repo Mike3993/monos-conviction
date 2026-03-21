@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MONOS Engine - Institutional Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0b1628;
+      color: #dce4ec;
+      overflow: hidden;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      grid-template-rows: 48px 1fr;
+      height: 100vh;
+      width: 100%;
+    }
+
+    /* TOP BAR */
+    .top-bar {
+      grid-column: 1 / -1;
+      background-color: #0b1628;
+      border-bottom: 1px solid #1e3050;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 100;
+    }
+
+    .top-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex: 1;
+    }
+
+    .top-bar-item {
+      font-size: 13px;
+      font-weight: 500;
+      color: #dce4ec;
+      white-space: nowrap;
+    }
+
+    .top-bar-label {
+      color: #7a8fa6;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .top-bar-value {
+      color: #dce4ec;
+      font-weight: 600;
+      font-family: "Courier New", monospace;
+    }
+
+    .top-bar-right {
+      font-size: 11px;
+      color: #7a8fa6;
+      white-space: nowrap;
+    }
+
+    /* LEFT NAV */
+    .left-nav {
+      grid-row: 2;
+      grid-column: 1;
+      background-color: #111d32;
+      border-right: 1px solid #1e3050;
+      padding: 12px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow-y: auto;
+    }
+
+    .nav-item {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #7a8fa6;
+      cursor: pointer;
+      border: 1px solid transparent;
+      border-left: 3px solid transparent;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+      text-align: left;
+    }
+
+    .nav-item:hover {
+      background-color: rgba(77, 171, 247, 0.1);
+      color: #4dabf7;
+    }
+
+    .nav-item.active {
+      background-color: rgba(77, 171, 247, 0.15);
+      border-left-color: #4dabf7;
+      color: #4dabf7;
+      font-weight: 500;
+    }
+
+    /* MAIN CONTENT */
+    .content {
+      grid-row: 2;
+      grid-column: 2;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      background-color: #0b1628;
+    }
+
+    .breadcrumb {
+      padding: 8px 12px;
+      font-size: 11px;
+      color: #7a8fa6;
+      border-bottom: 1px solid #1e3050;
+      background-color: #0b1628;
+    }
+
+    .content-inner {
+      padding: 12px;
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 8px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    /* CARD STYLES */
+    .card {
+      background-color: #111d32;
+      border: 1px solid #1e3050;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-header {
+      font-size: 11px;
+      font-weight: 600;
+      color: #4dabf7;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 8px;
+      border-bottom: 1px solid #1e3050;
+      margin: -8px -8px 8px -8px;
+      padding: 8px;
+    }
+
+    .card-content {
+      flex: 1;
+      overflow: auto;
+    }
+
+    /* TABLE STYLES */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    thead {
+      background-color: rgba(77, 171, 247, 0.1);
+      border-bottom: 1px solid #1e3050;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    th {
+      padding: 6px 8px;
+      text-align: left;
+      font-weight: 600;
+      color: #4dabf7;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-right: 1px solid #1e3050;
+    }
+
+    th:last-child {
+      border-right: none;
+    }
+
+    td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #1e3050;
+      border-right: 1px solid #1e3050;
+      font-family: "Courier New", monospace;
+    }
+
+    td:last-child {
+      border-right: none;
+    }
+
+    tbody tr:hover {
+      background-color: rgba(77, 171, 247, 0.05);
+    }
+
+    /* DATA STYLES */
+    .text-positive {
+      color: #22b573;
+    }
+
+    .text-negative {
+      color: #ef4444;
+    }
+
+    .text-warning {
+      color: #f59e0b;
+    }
+
+    .text-dim {
+      color: #7a8fa6;
+    }
+
+    .text-accent {
+      color: #4dabf7;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 0;
+      font-size: 10px;
+      font-weight: 500;
+      border: 1px solid #1e3050;
+    }
+
+    .badge-high {
+      background-color: rgba(239, 68, 68, 0.2);
+      color: #ef4444;
+      border-color: #ef4444;
+    }
+
+    .badge-med {
+      background-color: rgba(245, 158, 11, 0.2);
+      color: #f59e0b;
+      border-color: #f59e0b;
+    }
+
+    /* HEATMAP */
+    .heatmap-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    .heatmap-row {
+      display: contents;
+    }
+
+    .heatmap-cell {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: "Courier New", monospace;
+      border: 1px solid #1e3050;
+      color: #0b1628;
+      text-shadow: 0 0 1px rgba(220, 228, 236, 0.3);
+    }
+
+    /* ACCUMULATOR HISTOGRAM */
+    .histogram-container {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    .histogram-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 11px;
+    }
+
+    .histogram-label {
+      width: 40px;
+      text-align: right;
+      color: #7a8fa6;
+      font-family: "Courier New", monospace;
+    }
+
+    .histogram-bar {
+      flex: 1;
+      height: 24px;
+      background: linear-gradient(90deg, rgba(77, 171, 247, 0.3) 0%, rgba(77, 171, 247, 0.8) 100%);
+      border: 1px solid #4dabf7;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 6px;
+      color: #4dabf7;
+      font-weight: 600;
+      font-family: "Courier New", monospace;
+    }
+
+    /* OI SURFACE */
+    .oi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    .oi-row {
+      display: contents;
+    }
+
+    .oi-cell {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: "Courier New", monospace;
+      border: 1px solid #1e3050;
+      color: #dce4ec;
+    }
+
+    /* GRID LAYOUT */
+    .card-batch {
+      grid-column: 1 / 7;
+      grid-row: 1;
+    }
+
+    .card-top-trades {
+      grid-column: 7 / 13;
+      grid-row: 1;
+    }
+
+    .card-gex {
+      grid-column: 1 / 7;
+      grid-row: 2;
+    }
+
+    .card-oi {
+      grid-column: 7 / 13;
+      grid-row: 2;
+    }
+
+    .card-histogram {
+      grid-column: 1 / 13;
+      grid-row: 3;
+    }
+
+    /* SCROLLBARS */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background-color: #0b1628;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background-color: #1e3050;
+      border-radius: 0;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: #2a4578;
+    }
+
+    /* STRIKE LABELS */
+    .strike-labels {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      margin-top: 4px;
+      margin-bottom: 8px;
+    }
+
+    .strike-label {
+      text-align: center;
+      font-size: 10px;
+      color: #7a8fa6;
+      font-family: "Courier New", monospace;
+    }
+
+    .strike-row-label {
+      font-size: 10px;
+      color: #7a8fa6;
+      font-family: "Courier New", monospace;
+      padding: 4px 4px;
+      text-align: right;
+      min-width: 30px;
+    }
+
+    .heatmap-container {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .heatmap-with-labels {
+      display: flex;
+      gap: 8px;
+    }
+
+    .heatmap-strikes {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      justify-content: flex-start;
+      padding-top: 20px;
+    }
+
+    .oi-with-labels {
+      display: flex;
+      gap: 8px;
+    }
+
+    .oi-strikes {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      justify-content: flex-start;
+      padding-top: 20px;
+    }
+
+    /* EXPIRY HEADERS */
+    .expiry-headers {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      margin-bottom: 4px;
+      margin-left: 38px;
+    }
+
+    .expiry-header {
+      text-align: center;
+      font-size: 10px;
+      color: #7a8fa6;
+      font-family: "Courier New", monospace;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- TOP BAR -->
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="top-bar-item">
+          <span class="top-bar-label">Engine</span>
+          <span class="top-bar-value">MONOS</span>
+        </div>
+        <div class="top-bar-item">
+          <span class="top-bar-label">SPY</span>
+          <span class="top-bar-value">$670.79</span>
+        </div>
+        <div class="top-bar-item">
+          <span class="top-bar-label">VIX</span>
+          <span class="top-bar-value">18.42</span>
+        </div>
+      </div>
+      <div class="top-bar-right" id="timestamp"></div>
+    </div>
+
+    <!-- LEFT NAV -->
+    <div class="left-nav">
+      <div class="nav-item active">Dashboard</div>
+      <div class="nav-item">Signals</div>
+      <div class="nav-item">Surface</div>
+      <div class="nav-item">Execution</div>
+      <div class="nav-item">PnL</div>
+      <div class="nav-item">Decisions</div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="content">
+      <div class="breadcrumb">MONOS Engine / Institutional Dashboard</div>
+      <div class="content-inner">
+        <!-- BATCH RESULTS -->
+        <div class="card card-batch">
+          <div class="card-header">Batch Results</div>
+          <div class="card-content">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Mode</th>
+                  <th>Hold</th>
+                  <th>WR%</th>
+                  <th>Wgt</th>
+                  <th>Str</th>
+                </tr>
+              </thead>
+              <tbody id="batch-tbody">
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TOP TRADES -->
+        <div class="card card-top-trades">
+          <div class="card-header">Top Trades</div>
+          <div class="card-content">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Ticker</th>
+                  <th>Direction</th>
+                  <th>Strategy</th>
+                  <th>Hold</th>
+                  <th>Size</th>
+                </tr>
+              </thead>
+              <tbody id="top-tbody">
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- GEX HEATMAP -->
+        <div class="card card-gex">
+          <div class="card-header">GEX Heatmap (Gamma Exposure)</div>
+          <div class="card-content">
+            <div class="expiry-headers">
+              <div class="expiry-header">Mar21</div>
+              <div class="expiry-header">Mar28</div>
+              <div class="expiry-header">Apr04</div>
+              <div class="expiry-header">Apr11</div>
+              <div class="expiry-header">Apr17</div>
+            </div>
+            <div class="heatmap-with-labels">
+              <div class="heatmap-strikes" id="gex-strike-labels"></div>
+              <div class="heatmap-container">
+                <div class="heatmap-grid" id="gex-grid"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OI ACCUMULATION SURFACE -->
+        <div class="card card-oi">
+          <div class="card-header">OI Accumulation Surface</div>
+          <div class="card-content">
+            <div class="expiry-headers">
+              <div class="expiry-header">Mar21</div>
+              <div class="expiry-header">Mar28</div>
+              <div class="expiry-header">Apr04</div>
+              <div class="expiry-header">Apr11</div>
+              <div class="expiry-header">Apr17</div>
+            </div>
+            <div class="oi-with-labels">
+              <div class="oi-strikes" id="oi-strike-labels"></div>
+              <div class="heatmap-container">
+                <div class="oi-grid" id="oi-grid"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACCUMULATOR HISTOGRAM -->
+        <div class="card card-histogram">
+          <div class="card-header">Accumulator Histogram (Net GEX by Strike)</div>
+          <div class="card-content">
+            <div class="histogram-container" id="histogram-container"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // MOCK DATA
+    const BATCH=[{t:"GLD",mode:"Convex",hold:"5d",wr:100,wgt:132.79,str:"HIGH"},{t:"SLV",mode:"Convex",hold:"2d",wr:66.7,wgt:41.93,str:"HIGH"},{t:"IWM",mode:"Tactical",hold:"2d",wr:75,wgt:25.93,str:"HIGH"},{t:"SPY",mode:"Tactical",hold:"2d",wr:80,wgt:7.54,str:"HIGH"},{t:"SMH",mode:"Hybrid",hold:"10d",wr:75,wgt:5.53,str:"HIGH"},{t:"QQQ",mode:"Tactical",hold:"10d",wr:75,wgt:3.83,str:"MED"}];
+    const TOP=[{r:1,t:"GLD",d:"LONG",s:"LONG_CALL",h:"10-20d",sz:"HIGH"},{r:2,t:"SLV",d:"SHORT",s:"LONG_PUT",h:"10-20d",sz:"HIGH"},{r:3,t:"IWM",d:"LONG",s:"CALL_SPREAD",h:"1-3d",sz:"MED"}];
+    const STRIKES=[650,655,660,665,670,675,680,685,690];
+    const EXPIRIES=["Mar21","Mar28","Apr04","Apr11","Apr17"];
+    const GEX=[[0.8,1.2,0.5,0.3,0.1],[1.5,2.8,1.2,0.8,0.4],[2.1,3.5,2.0,1.1,0.6],[3.8,5.2,3.1,1.8,0.9],[5.5,8.1,4.5,2.5,1.2],[3.2,4.8,2.8,1.5,0.7],[1.8,2.5,1.5,0.9,0.5],[0.9,1.3,0.8,0.5,0.3],[0.4,0.6,0.3,0.2,0.1]];
+    const OI=[[12,18,8,5,2],[25,42,20,12,6],[38,55,30,18,9],[52,78,45,28,14],[85,120,68,40,20],[48,72,42,24,12],[30,45,25,15,8],[15,22,12,8,4],[8,12,6,3,2]];
+    const NGEX=[{s:650,v:0.8},{s:655,v:1.5},{s:660,v:2.1},{s:665,v:3.8},{s:670,v:5.5},{s:675,v:3.2},{s:680,v:1.8},{s:685,v:0.9},{s:690,v:0.4}];
+
+    // UPDATE TIMESTAMP
+    function updateTimestamp() {
+      const now = new Date();
+      const time = now.toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+      document.getElementById('timestamp').textContent = `${now.toISOString().split('T')[0]} ${time}`;
+    }
+    updateTimestamp();
+    setInterval(updateTimestamp, 1000);
+
+    // RENDER BATCH TABLE
+    function renderBatch() {
+      const tbody = document.getElementById('batch-tbody');
+      BATCH.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="text-accent">${row.t}</td>
+          <td class="text-dim">${row.mode}</td>
+          <td class="text-dim">${row.hold}</td>
+          <td class="text-positive">${row.wr}%</td>
+          <td>${row.wgt.toFixed(2)}</td>
+          <td><span class="badge badge-${row.str === 'HIGH' ? 'high' : 'med'}">${row.str}</span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // RENDER TOP TRADES TABLE
+    function renderTopTrades() {
+      const tbody = document.getElementById('top-tbody');
+      TOP.forEach(row => {
+        const tr = document.createElement('tr');
+        const dirClass = row.d === 'LONG' ? 'text-positive' : 'text-negative';
+        tr.innerHTML = `
+          <td class="text-dim">${row.r}</td>
+          <td class="text-accent">${row.t}</td>
+          <td class="${dirClass}">${row.d}</td>
+          <td class="text-dim">${row.s}</td>
+          <td class="text-dim">${row.h}</td>
+          <td><span class="badge badge-${row.sz === 'HIGH' ? 'high' : 'med'}">${row.sz}</span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // COLOR FUNCTION FOR HEATMAP
+    function getGexColor(value) {
+      const max = 8.1;
+      const normalized = value / max;
+      if (normalized < 0.25) {
+        return `rgb(34, 181, 115)`; // green
+      } else if (normalized < 0.5) {
+        return `rgb(245, 158, 11)`; // orange
+      } else if (normalized < 0.75) {
+        return `rgb(249, 115, 22)`; // orange-red
+      } else {
+        return `rgb(239, 68, 68)`; // red
+      }
+    }
+
+    // RENDER GEX HEATMAP
+    function renderGexHeatmap() {
+      const grid = document.getElementById('gex-grid');
+      const labels = document.getElementById('gex-strike-labels');
+
+      GEX.forEach((row, strikeIdx) => {
+        const strikeLabel = document.createElement('div');
+        strikeLabel.className = 'strike-row-label';
+        strikeLabel.textContent = STRIKES[strikeIdx];
+        labels.appendChild(strikeLabel);
+
+        row.forEach(value => {
+          const cell = document.createElement('div');
+          cell.className = 'heatmap-cell';
+          cell.style.backgroundColor = getGexColor(value);
+          cell.textContent = value.toFixed(1);
+          grid.appendChild(cell);
+        });
+      });
+    }
+
+    // COLOR FUNCTION FOR OI SURFACE
+    function getOiColor(value) {
+      const max = 120;
+      const normalized = value / max;
+      const intensity = Math.floor(normalized * 255);
+      return `rgba(77, 171, 247, ${normalized * 0.8})`;
+    }
+
+    // RENDER OI SURFACE
+    function renderOiSurface() {
+      const grid = document.getElementById('oi-grid');
+      const labels = document.getElementById('oi-strike-labels');
+
+      OI.forEach((row, strikeIdx) => {
+        const strikeLabel = document.createElement('div');
+        strikeLabel.className = 'strike-row-label';
+        strikeLabel.textContent = STRIKES[strikeIdx];
+        labels.appendChild(strikeLabel);
+
+        row.forEach(value => {
+          const cell = document.createElement('div');
+          cell.className = 'oi-cell';
+          cell.style.backgroundColor = getOiColor(value);
+          cell.textContent = value;
+          grid.appendChild(cell);
+        });
+      });
+    }
+
+    // RENDER HISTOGRAM
+    function renderHistogram() {
+      const container = document.getElementById('histogram-container');
+      const maxValue = Math.max(...NGEX.map(x => x.v));
+
+      NGEX.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'histogram-row';
+
+        const label = document.createElement('div');
+        label.className = 'histogram-label';
+        label.textContent = item.s;
+
+        const bar = document.createElement('div');
+        bar.className = 'histogram-bar';
+        bar.style.width = `${(item.v / maxValue) * 100}%`;
+        bar.textContent = item.v.toFixed(1);
+
+        row.appendChild(label);
+        row.appendChild(bar);
+        container.appendChild(row);
+      });
+    }
+
+    // INITIALIZE
+    document.addEventListener('DOMContentLoaded', () => {
+      renderBatch();
+      renderTopTrades();
+      renderGexHeatmap();
+      renderOiSurface();
+      renderHistogram();
+    });
+  </script>
+</body>
+</html>

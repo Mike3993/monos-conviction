@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convexity Engine - Beginner Guide</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #fefefe;
+            color: #334155;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            color: #0ea5e9;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            color: #94a3b8;
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        .progress-label {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-bottom: 1rem;
+            font-weight: 500;
+        }
+
+        .progress-dots {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #e2e8f0;
+            transition: all 0.3s ease;
+        }
+
+        .dot.active {
+            background-color: #0ea5e9;
+            width: 36px;
+            border-radius: 6px;
+        }
+
+        /* Step Card */
+        .step-card {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            border: 1px solid #e2e8f0;
+        }
+
+        .step-number {
+            display: inline-block;
+            background-color: #0ea5e9;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 40px;
+            font-weight: bold;
+            margin-bottom: 1rem;
+        }
+
+        .step-card h2 {
+            font-size: 1.8rem;
+            color: #0f172a;
+            margin-bottom: 1rem;
+        }
+
+        .info-box {
+            background-color: #f1f5f9;
+            border-left: 4px solid #0ea5e9;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            font-style: italic;
+            color: #475569;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+        }
+
+        th {
+            background-color: #0ea5e9;
+            color: white;
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        tr:hover {
+            background-color: #f8fafc;
+        }
+
+        /* Heatmap */
+        .heatmap-container {
+            overflow-x: auto;
+            margin-bottom: 1.5rem;
+        }
+
+        .heatmap {
+            display: grid;
+            grid-template-columns: 80px repeat(5, 1fr);
+            gap: 4px;
+            margin-bottom: 1.5rem;
+        }
+
+        .heatmap-cell {
+            padding: 0.75rem;
+            text-align: center;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 50px;
+        }
+
+        .heatmap-label {
+            background-color: transparent;
+            color: #334155;
+            font-weight: 500;
+            padding: 0.75rem;
+            text-align: right;
+        }
+
+        .heatmap-header {
+            background-color: transparent;
+            color: #334155;
+            font-weight: 500;
+            text-align: center;
+            padding: 0.75rem 0;
+        }
+
+        .legend {
+            background-color: #f8fafc;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+
+        .legend-item {
+            display: inline-block;
+            margin-right: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .legend-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 0.5rem;
+            vertical-align: middle;
+        }
+
+        /* Top Trades Cards */
+        .trades-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .trade-card {
+            background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.2);
+        }
+
+        .trade-rank {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            opacity: 0.9;
+        }
+
+        .trade-ticker {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+
+        .trade-meta {
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            opacity: 0.95;
+        }
+
+        .trade-explanation {
+            font-size: 0.85rem;
+            background-color: rgba(255, 255, 255, 0.15);
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-top: 1rem;
+            font-style: italic;
+        }
+
+        /* Surface Chart */
+        .surface-grid {
+            display: grid;
+            grid-template-columns: 80px repeat(5, 1fr);
+            gap: 4px;
+            margin-bottom: 1.5rem;
+        }
+
+        .surface-cell {
+            padding: 0.75rem;
+            text-align: center;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 50px;
+        }
+
+        /* Histogram */
+        .histogram-container {
+            position: relative;
+            margin-bottom: 1.5rem;
+        }
+
+        .histogram {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-around;
+            height: 200px;
+            gap: 8px;
+            padding: 1rem;
+            background-color: #f8fafc;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+
+        .bar {
+            flex: 1;
+            background: linear-gradient(180deg, #14b8a6 0%, #0d9488 100%);
+            border-radius: 4px 4px 0 0;
+            position: relative;
+            min-height: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .bar:hover {
+            background: linear-gradient(180deg, #0ea5e9 0%, #06b6d4 100%);
+            transform: scaleY(1.05);
+        }
+
+        .bar-label {
+            position: absolute;
+            bottom: -25px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: #475569;
+        }
+
+        .annotation {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            font-size: 0.85rem;
+            color: #f43f5e;
+            font-weight: bold;
+        }
+
+        .annotation-arrow {
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+
+        /* Buttons */
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            flex: 1;
+            min-width: 150px;
+            padding: 1rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background-color: #0ea5e9;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #0284c7;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);
+        }
+
+        .btn-secondary {
+            background-color: #14b8a6;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background-color: #0d9488;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(20, 184, 166, 0.4);
+        }
+
+        .btn-danger {
+            background-color: #f43f5e;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: #e11d48;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(244, 63, 94, 0.4);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .step-card {
+                padding: 1.5rem;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .step-card h2 {
+                font-size: 1.4rem;
+            }
+
+            .trades-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            .btn {
+                min-width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Convexity Engine</h1>
+            <p class="subtitle">Learn to Trade Options Like a Pro</p>
+        </header>
+
+        <!-- Progress Bar -->
+        <div class="progress-container">
+            <div class="progress-label" id="progressLabel">Step 1 of 5</div>
+            <div class="progress-dots">
+                <div class="dot active" data-step="1"></div>
+                <div class="dot" data-step="2"></div>
+                <div class="dot" data-step="3"></div>
+                <div class="dot" data-step="4"></div>
+                <div class="dot" data-step="5"></div>
+            </div>
+        </div>
+
+        <!-- Step 1: Batch Results -->
+        <div class="step-card" data-step="1">
+            <div class="step-number">1</div>
+            <h2>Your Batch Results</h2>
+            <div class="info-box">
+                <strong>What this means:</strong> These are the top trading opportunities our algorithm found. Each row shows a ticker (like GLD), the strategy mode, how long we recommend holding it, and confidence level. Higher "Weight" means more conviction.
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Ticker</th>
+                        <th>Mode</th>
+                        <th>Hold Period</th>
+                        <th>Win Rate</th>
+                        <th>Weight</th>
+                        <th>Strength</th>
+                    </tr>
+                </thead>
+                <tbody id="batchTable"></tbody>
+            </table>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="scrollToStep(2)">Next: Top Trades →</button>
+            </div>
+        </div>
+
+        <!-- Step 2: Top Trades -->
+        <div class="step-card" data-step="2">
+            <div class="step-number">2</div>
+            <h2>Your Top 3 Trade Ideas</h2>
+            <div class="info-box">
+                <strong>What this means:</strong> These are the specific trades to execute RIGHT NOW. Each card shows the direction (LONG/SHORT), the option type (CALL, PUT, SPREAD), and the recommended timeframe. The longer the time, the lower the risk.
+            </div>
+            <div class="trades-grid" id="tradesGrid"></div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="scrollToStep(3)">Next: GEX Heatmap →</button>
+            </div>
+        </div>
+
+        <!-- Step 3: GEX Heatmap -->
+        <div class="step-card" data-step="3">
+            <div class="step-number">3</div>
+            <h2>Gamma Exposure (GEX) Heatmap</h2>
+            <div class="info-box">
+                <strong>What this means:</strong> GEX shows where dealers are short gamma. High GEX (red) = volatile, unstable prices. Low GEX (green) = stable, predictable prices. The columns are expiration dates; rows are strike prices.
+            </div>
+            <div class="heatmap-container">
+                <div class="heatmap" id="gexHeatmap"></div>
+            </div>
+            <div class="legend">
+                <div class="legend-item">
+                    <span class="legend-color" style="background-color: #10b981;"></span>
+                    <strong>Green</strong> = Low GEX (stable)
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background-color: #f59e0b;"></span>
+                    <strong>Yellow</strong> = Medium GEX
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background-color: #ef4444;"></span>
+                    <strong>Red</strong> = High GEX (volatile)
+                </div>
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="scrollToStep(4)">Next: OI Surface →</button>
+            </div>
+        </div>
+
+        <!-- Step 4: OI Surface -->
+        <div class="step-card" data-step="4">
+            <div class="step-number">4</div>
+            <h2>Open Interest Surface</h2>
+            <div class="info-box">
+                <strong>What this means:</strong> Open Interest (OI) shows how many option contracts exist at each strike. Darker blue = more contracts. High OI zones are "sticky" — prices bounce off them.
+            </div>
+            <div class="heatmap-container">
+                <div class="heatmap" id="oiSurface"></div>
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="scrollToStep(5)">Next: Accumulator Hist →</button>
+            </div>
+        </div>
+
+        <!-- Step 5: Histogram -->
+        <div class="step-card" data-step="5">
+            <div class="step-number">5</div>
+            <h2>Accumulator Histogram</h2>
+            <div class="info-box">
+                <strong>What this means:</strong> This chart shows dealer gamma exposure at each strike price. The taller the bar, the more volatile that price level will be. Peak bars are where price will likely stall or reverse.
+            </div>
+            <div class="histogram-container">
+                <div class="annotation">
+                    <span class="annotation-arrow">↑</span> Peak dealer exposure at 670
+                </div>
+                <div class="histogram" id="histogram"></div>
+            </div>
+            <div class="button-group">
+                <button class="btn btn-secondary" onclick="scrollToStep(1)">← Review from Start</button>
+                <button class="btn btn-danger" onclick="executeTrading()">Execute Trade Plan</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BATCH=[{t:"GLD",mode:"Convex",hold:"5d",wr:100,wgt:132.79,str:"HIGH"},{t:"SLV",mode:"Convex",hold:"2d",wr:66.7,wgt:41.93,str:"HIGH"},{t:"IWM",mode:"Tactical",hold:"2d",wr:75,wgt:25.93,str:"HIGH"},{t:"SPY",mode:"Tactical",hold:"2d",wr:80,wgt:7.54,str:"HIGH"},{t:"SMH",mode:"Hybrid",hold:"10d",wr:75,wgt:5.53,str:"HIGH"},{t:"QQQ",mode:"Tactical",hold:"10d",wr:75,wgt:3.83,str:"MED"}];
+        const TOP=[{r:1,t:"GLD",d:"LONG",s:"LONG_CALL",h:"10-20d",sz:"HIGH"},{r:2,t:"SLV",d:"SHORT",s:"LONG_PUT",h:"10-20d",sz:"HIGH"},{r:3,t:"IWM",d:"LONG",s:"CALL_SPREAD",h:"1-3d",sz:"MED"}];
+        const STRIKES=[650,655,660,665,670,675,680,685,690];
+        const EXPIRIES=["Mar21","Mar28","Apr04","Apr11","Apr17"];
+        const GEX=[[0.8,1.2,0.5,0.3,0.1],[1.5,2.8,1.2,0.8,0.4],[2.1,3.5,2.0,1.1,0.6],[3.8,5.2,3.1,1.8,0.9],[5.5,8.1,4.5,2.5,1.2],[3.2,4.8,2.8,1.5,0.7],[1.8,2.5,1.5,0.9,0.5],[0.9,1.3,0.8,0.5,0.3],[0.4,0.6,0.3,0.2,0.1]];
+        const OI=[[12,18,8,5,2],[25,42,20,12,6],[38,55,30,18,9],[52,78,45,28,14],[85,120,68,40,20],[48,72,42,24,12],[30,45,25,15,8],[15,22,12,8,4],[8,12,6,3,2]];
+        const NGEX=[{s:650,v:0.8},{s:655,v:1.5},{s:660,v:2.1},{s:665,v:3.8},{s:670,v:5.5},{s:675,v:3.2},{s:680,v:1.8},{s:685,v:0.9},{s:690,v:0.4}];
+
+        function getGexColor(value) {
+            const max = 8.1;
+            const ratio = value / max;
+            if (ratio < 0.3) return '#10b981';
+            if (ratio < 0.6) return '#f59e0b';
+            return '#ef4444';
+        }
+
+        function getOiColor(value) {
+            const max = 120;
+            const ratio = value / max;
+            const blue = Math.floor(255 * (1 - ratio * 0.7));
+            const green = Math.floor(100 * ratio);
+            return `rgb(0, ${green}, ${blue})`;
+        }
+
+        function renderBatch() {
+            const tbody = document.getElementById('batchTable');
+            BATCH.forEach(b => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td><strong>${b.t}</strong></td>
+                    <td>${b.mode}</td>
+                    <td>${b.hold}</td>
+                    <td>${b.wr}%</td>
+                    <td>${b.wgt.toFixed(2)}</td>
+                    <td><span style="color: ${b.str === 'HIGH' ? '#14b8a6' : '#f59e0b'}; font-weight: bold;">${b.str}</span></td>
+                `;
+            });
+        }
+
+        function renderTrades() {
+            const grid = document.getElementById('tradesGrid');
+            TOP.forEach(t => {
+                const card = document.createElement('div');
+                card.className = 'trade-card';
+                const directionColor = t.d === 'LONG' ? '#10b981' : '#ef4444';
+                card.innerHTML = `
+                    <div class="trade-rank">#${t.r}</div>
+                    <div class="trade-ticker">${t.t}</div>
+                    <div class="trade-meta">
+                        <div><strong>Direction:</strong> <span style="color: ${directionColor};">${t.d}</span></div>
+                        <div><strong>Type:</strong> ${t.s}</div>
+                        <div><strong>Hold:</strong> ${t.h}</div>
+                        <div><strong>Size:</strong> ${t.sz}</div>
+                    </div>
+                    <div class="trade-explanation">
+                        <strong>What this means:</strong> This ${t.d} trade uses a ${t.s} option. Hold for ${t.h} to maximize risk/reward.
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function renderGexHeatmap() {
+            const container = document.getElementById('gexHeatmap');
+            container.innerHTML = '';
+
+            // Headers
+            const headerLabel = document.createElement('div');
+            headerLabel.className = 'heatmap-header';
+            headerLabel.textContent = 'Strike';
+            container.appendChild(headerLabel);
+
+            EXPIRIES.forEach(exp => {
+                const header = document.createElement('div');
+                header.className = 'heatmap-header';
+                header.textContent = exp;
+                container.appendChild(header);
+            });
+
+            // Cells
+            STRIKES.forEach((strike, i) => {
+                const label = document.createElement('div');
+                label.className = 'heatmap-label';
+                label.textContent = strike;
+                container.appendChild(label);
+
+                GEX[i].forEach(val => {
+                    const cell = document.createElement('div');
+                    cell.className = 'heatmap-cell';
+                    cell.style.backgroundColor = getGexColor(val);
+                    cell.textContent = val.toFixed(1);
+                    container.appendChild(cell);
+                });
+            });
+        }
+
+        function renderOiSurface() {
+            const container = document.getElementById('oiSurface');
+            container.innerHTML = '';
+
+            // Headers
+            const headerLabel = document.createElement('div');
+            headerLabel.className = 'heatmap-header';
+            headerLabel.textContent = 'Strike';
+            container.appendChild(headerLabel);
+
+            EXPIRIES.forEach(exp => {
+                const header = document.createElement('div');
+                header.className = 'heatmap-header';
+                header.textContent = exp;
+                container.appendChild(header);
+            });
+
+            // Cells
+            STRIKES.forEach((strike, i) => {
+                const label = document.createElement('div');
+                label.className = 'heatmap-label';
+                label.textContent = strike;
+                container.appendChild(label);
+
+                OI[i].forEach(val => {
+                    const cell = document.createElement('div');
+                    cell.className = 'heatmap-cell';
+                    cell.style.backgroundColor = getOiColor(val);
+                    cell.textContent = val;
+                    container.appendChild(cell);
+                });
+            });
+        }
+
+        function renderHistogram() {
+            const container = document.getElementById('histogram');
+            container.innerHTML = '';
+
+            const maxGex = Math.max(...NGEX.map(x => x.v));
+
+            NGEX.forEach(item => {
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+                const percentage = (item.v / maxGex) * 100;
+                bar.style.height = percentage + '%';
+                bar.innerHTML = `<div class="bar-label">${item.s}</div>`;
+                container.appendChild(bar);
+            });
+        }
+
+        function scrollToStep(step) {
+            const card = document.querySelector(`[data-step="${step}"]`);
+            if (card) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                updateProgress(step);
+            }
+        }
+
+        function updateProgress(step) {
+            document.querySelectorAll('.dot').forEach((dot, i) => {
+                if (i < step) {
+                    dot.classList.add('active');
+                } else {
+                    dot.classList.remove('active');
+                }
+            });
+            document.getElementById('progressLabel').textContent = `Step ${step} of 5`;
+        }
+
+        function executeTrading() {
+            alert('🎉 Trade plan execution initiated!\n\nIn a real system, this would:\n1. Verify account balance\n2. Place option orders\n3. Set stop losses\n4. Monitor positions\n\nFor now, review each step above and manage trades manually.');
+        }
+
+        // Initialize
+        renderBatch();
+        renderTrades();
+        renderGexHeatmap();
+        renderOiSurface();
+        renderHistogram();
+    </script>
+</body>
+</html>

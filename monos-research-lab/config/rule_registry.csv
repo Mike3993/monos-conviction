@@ -1,0 +1,11 @@
+rule_id,chapter,rule_name,rule_type,hypothesis,tyler_required,current_status,notes
+C-MSA-01,CH01,MSA Bullish Regime Gate,C,"LONG trades filtered when MSA_BEARISH improves win rate by >5pp",true,testing,"Foundation rule. Tyler must validate live MSA state vs backtest proxy."
+C-MSA-02,CH01,MSA Bearish Regime Gate,C,"SHORT trades filtered when MSA_BULLISH improves win rate by >5pp",true,testing,"Mirror of C-MSA-01 for short direction."
+C-MSA-03,CH01,MSA Neutral Mean Reversion Overlay,C,"MSA_NEUTRAL + extended price triggers mean-reversion mode with positive expectancy",true,testing,"Requires live MSA state accuracy. Backtest proxy may overfit."
+C-MSA-04,CH01,MSA Position Size Boost,C,"1.5x position size when MSA aligned with signal direction improves total return without proportional drawdown increase",true,testing,"Size boost rule. Tyler must confirm MSA alignment is stable enough for leverage."
+C-MSA-06,CH01,MSA Cross-Instrument Consistency,C,"MSA regime classification produces consistent edge across SPY/QQQ/IWM/SMH/GLD/SLV",true,testing,"Cross-instrument validation. Must hold across asset classes not just indices."
+B-SPREAD-01,CH02,Mode-Driven Structure Selection,B,"TACTICAL=spreads CONVEX=naked HYBRID=conditional produces better risk-adjusted returns than uniform structure",false,blocked,"Requires CH01 crystallized. Testable from backtest data alone."
+B-VOL-01,CH03,IV Regime Entry Timing,B,"Entering when IV rank < 30 and exiting when IV rank > 70 improves theta efficiency by >15%",true,blocked,"Requires CH01+CH02. Tyler needed for live IV surface vs historical proxy."
+A-GEX-01,CH04,Dealer Positioning Directional Bias,A,"SHORT_GAMMA dealer positioning amplifies directional moves; LONG_GAMMA suppresses. Using as confirmation improves win rate.",true,blocked,"Requires CH01. Tyler needed for live GEX computation."
+A-LADDER-01,CH05,Confidence-Tiered Ladder Sizing,A,"3-tranche entry ladder (30%/40%/30%) at confidence tiers outperforms single-entry on drawdown-adjusted basis",false,blocked,"Requires CH01+CH02+CH03. Testable from backtest data."
+A-SNIPER-01,CH06,Confluent Entry Timing,A,"Entry only when MSA+GEX+Vol+Momentum all align produces >70% win rate with >2:1 reward/risk",true,blocked,"Terminal rule. Requires all prior chapters crystallized. Tyler full pipeline validation."

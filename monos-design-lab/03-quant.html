@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MONOS — Quant Terminal Build</title>
+<style>
+:root {
+  --bg: #0a0a0a;
+  --border: #1a1a1a;
+  --text: #00ff41;
+  --text-dim: #808080;
+  --accent: #ffb000;
+  --success: #00ff41;
+  --danger: #ff3333;
+  --mono: 'Menlo','Consolas','Courier New',monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.4;
+}
+/* Header */
+.header {
+  background: var(--border);
+  border-bottom: 1px solid #333;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.header-left {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+.header-logo {
+  font-weight: 700;
+  color: var(--accent);
+}
+.header-right {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+.header-right span {
+  color: var(--text-dim);
+}
+/* Container */
+.container {
+  padding: 12px;
+  max-width: 100%;
+}
+/* KPI Row */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.kpi-card {
+  background: var(--border);
+  border: 1px solid #333;
+  padding: 8px 12px;
+  text-align: center;
+}
+.kpi-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.kpi-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.kpi-value.pos { color: var(--success); }
+.kpi-value.neg { color: var(--danger); }
+/* Panel */
+.panel {
+  background: var(--border);
+  border: 1px solid #333;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+}
+.panel-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid #333;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.panel-body {
+  padding: 0;
+  overflow-x: auto;
+  flex: 1;
+}
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+th {
+  text-align: left;
+  padding: 6px 8px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+  color: var(--accent);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #1a1a1a;
+}
+tr:hover { background: #1a1a1a; }
+/* Two Column Layout */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+/* Heatmap */
+.heatmap-grid {
+  display: grid;
+  gap: 1px;
+  padding: 12px;
+  background: var(--bg);
+}
+.heatmap-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: #000;
+  min-height: 28px;
+  border: 1px solid #1a1a1a;
+  font-weight: 600;
+}
+.heatmap-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-align: center;
+  font-family: var(--mono);
+  padding: 4px;
+}
+/* Histogram */
+.hist-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.hist-label {
+  min-width: 50px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+  text-align: right;
+}
+.hist-track {
+  flex: 1;
+  height: 12px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  overflow: hidden;
+}
+.hist-fill { height: 100%; transition: width 0.3s; }
+.hist-val {
+  min-width: 45px;
+  font-size: 10px;
+  font-family: var(--mono);
+  text-align: right;
+  color: var(--text);
+}
+/* Status Bar */
+.status-bar {
+  background: var(--border);
+  border-top: 1px solid #333;
+  padding: 6px 12px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim);
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+.status-item {
+  display: flex;
+  gap: 8px;
+}
+.status-value {
+  color: var(--text);
+}
+body { margin-bottom: 28px; }
+@media (max-width: 960px) {
+  .two-col { grid-template-columns: 1fr; }
+  .kpi-row { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="header-logo">> MONOS_TERMINAL</div>
+  </div>
+  <div class="header-right">
+    <span>SPY: 670.79</span>
+    <span>VIX: 18.42</span>
+    <span id="clock"></span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- KPI Row -->
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-label">Top Signal</div>
+      <div class="kpi-value">GLD</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Best WR</div>
+      <div class="kpi-value pos">100%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Best Wgt Ret</div>
+      <div class="kpi-value pos">132.79%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Open</div>
+      <div class="kpi-value">5</div>
+    </div>
+  </div>
+
+  <!-- Tables -->
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-header">Batch Results</div>
+      <div class="panel-body">
+        <table>
+          <thead><tr><th>Tkr</th><th>Mode</th><th>Hold</th><th>WR</th><th>Ret</th><th>Str</th></tr></thead>
+          <tbody id="batch-body"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">Top Trades</div>
+      <div class="panel-body">
+        <table>
+          <thead><tr><th>Rank</th><th>Tkr</th><th>Dir</th><th>Struct</th><th>Hold</th><th>Size</th></tr></thead>
+          <tbody id="top-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Heatmaps -->
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-header">GEX Heatmap (Strike × Expiry)</div>
+      <div class="panel-body" id="gex-heatmap"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">OI Surface</div>
+      <div class="panel-body" id="oi-surface"></div>
+    </div>
+  </div>
+
+  <!-- Histogram -->
+  <div class="panel">
+    <div class="panel-header">Net GEX Accumulator</div>
+    <div class="panel-body" style="padding:12px" id="accum-hist"></div>
+  </div>
+</div>
+
+<div class="status-bar">
+  <div class="status-item">
+    <span>CPU:</span>
+    <span class="status-value">34%</span>
+  </div>
+  <div class="status-item">
+    <span>MEM:</span>
+    <span class="status-value">1.2GB</span>
+  </div>
+  <div class="status-item">
+    <span>CONN:</span>
+    <span class="status-value">OK</span>
+  </div>
+  <div class="status-item">
+    <span>LAT:</span>
+    <span class="status-value">2.3ms</span>
+  </div>
+</div>
+
+<script>
+// ── SHARED DATA ──────────────────────────────────────────────
+const BATCH = [
+  {ticker:"GLD",mode:"Convex",hold:"5d",wr:100,wgt:132.79,str:"HIGH"},
+  {ticker:"SLV",mode:"Convex",hold:"2d",wr:66.7,wgt:41.93,str:"HIGH"},
+  {ticker:"IWM",mode:"Tactical",hold:"2d",wr:75,wgt:25.93,str:"HIGH"},
+  {ticker:"SPY",mode:"Tactical",hold:"2d",wr:80,wgt:7.54,str:"HIGH"},
+  {ticker:"SMH",mode:"Hybrid",hold:"10d",wr:75,wgt:5.53,str:"HIGH"},
+  {ticker:"QQQ",mode:"Tactical",hold:"10d",wr:75,wgt:3.83,str:"MEDIUM"},
+];
+const TOP_TRADES = [
+  {rank:1,ticker:"GLD",dir:"LONG",struct:"LONG_CALL",hold:"10-20d",sizing:"HIGH"},
+  {rank:2,ticker:"SLV",dir:"SHORT",struct:"LONG_PUT",hold:"10-20d",sizing:"HIGH"},
+  {rank:3,ticker:"IWM",dir:"LONG",struct:"CALL_SPREAD",hold:"1-3d",sizing:"MEDIUM"},
+];
+const STRIKES = [650,655,660,665,670,675,680,685,690];
+const EXPIRIES = ["Mar 21","Mar 28","Apr 04","Apr 11","Apr 17"];
+const GEX_DATA = [
+  [0.8,1.2,0.5,0.3,0.1],[1.5,2.8,1.2,0.8,0.4],[2.1,3.5,2.0,1.1,0.6],
+  [3.8,5.2,3.1,1.8,0.9],[5.5,8.1,4.5,2.5,1.2],[3.2,4.8,2.8,1.5,0.7],
+  [1.8,2.5,1.5,0.9,0.5],[0.9,1.3,0.8,0.5,0.3],[0.4,0.6,0.3,0.2,0.1],
+];
+const OI_DATA = [
+  [12,18,8,5,2],[25,42,20,12,6],[38,55,30,18,9],
+  [52,78,45,28,14],[85,120,68,40,20],[48,72,42,24,12],
+  [30,45,25,15,8],[15,22,12,8,4],[8,12,6,3,2],
+];
+const NET_GEX = [{s:650,v:0.8},{s:655,v:1.5},{s:660,v:2.1},{s:665,v:3.8},{s:670,v:5.5},{s:675,v:3.2},{s:680,v:1.8},{s:685,v:0.9},{s:690,v:0.4}];
+
+// ── RENDER ───────────────────────────────────────────────
+function renderBatch(){
+  let h="";
+  BATCH.forEach(b=>{
+    const c=b.wgt>0?"pos":"neg";
+    h+=`<tr><td><strong>${b.ticker}</strong></td><td>${b.mode}</td><td>${b.hold}</td><td>${b.wr}</td><td class="${c}">${b.wgt}%</td><td>${b.str}</td></tr>`;
+  });
+  document.getElementById("batch-body").innerHTML=h;
+}
+function renderTopTrades(){
+  let h="";
+  TOP_TRADES.forEach(t=>{
+    h+=`<tr><td>${t.rank}</td><td><strong>${t.ticker}</strong></td><td>${t.dir}</td><td>${t.struct}</td><td>${t.hold}</td><td>${t.sizing}</td></tr>`;
+  });
+  document.getElementById("top-body").innerHTML=h;
+}
+function gexColor(v){
+  const max=8.1;const pct=Math.min(v/max,1);
+  if(pct<0.25)return `#00ff41`;
+  if(pct<0.5)return `#ffb000`;
+  if(pct<0.75)return `#ff6600`;
+  return `#ff3333`;
+}
+function renderHeatmap(id,data,label){
+  const cols=EXPIRIES.length;
+  let h=`<div class="heatmap-grid" style="grid-template-columns:50px repeat(${cols},1fr)">`;
+  h+=`<div></div>`;
+  EXPIRIES.forEach(e=>h+=`<div class="heatmap-label">${e}</div>`);
+  STRIKES.forEach((s,i)=>{
+    h+=`<div class="heatmap-label" style="text-align:right;padding-right:4px">${s}</div>`;
+    data[i].forEach(v=>{
+      const bg=label==="gex"?gexColor(v):(v>60?"#ff6600":v>30?"#ffb000":"#00ff41");
+      h+=`<div class="heatmap-cell" style="background:${bg}">${label==="gex"?v.toFixed(1):v}</div>`;
+    });
+  });
+  h+=`</div>`;
+  document.getElementById(id).innerHTML=h;
+}
+function renderHistogram(){
+  const max=Math.max(...NET_GEX.map(d=>d.v));
+  let h="";
+  NET_GEX.forEach(d=>{
+    const pct=(d.v/max*100).toFixed(0);
+    const color=d.s===670?"#ffb000":d.v>3?"#ff6600":"#00ff41";
+    h+=`<div class="hist-bar"><span class="hist-label">${d.s}</span><div class="hist-track"><div class="hist-fill" style="width:${pct}%;background:${color}"></div></div><span class="hist-val">${d.v.toFixed(1)}B</span></div>`;
+  });
+  document.getElementById("accum-hist").innerHTML=h;
+}
+function updateClock(){document.getElementById("clock").textContent=new Date().toLocaleTimeString();}
+renderBatch();renderTopTrades();renderHeatmap("gex-heatmap",GEX_DATA,"gex");renderHeatmap("oi-surface",OI_DATA,"oi");renderHistogram();setInterval(updateClock,1000);updateClock();
+</script>
+</body>
+</html>
