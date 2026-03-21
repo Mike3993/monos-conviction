@@ -258,50 +258,30 @@ function getGovernorBorder(status) {
 }
 
 function generateMockHeatmapData() {
-  const structs = ["CALL_LADDER","VERTICAL_SPREAD","CALENDAR_SPREAD","DIAGONAL_SPREAD","RATIO_SPREAD","BROKEN_WING_BFly","PUT_LADDER","LONG_CONVEXITY"];
-  const govStatuses = ["APPROVED","CONDITIONAL","BLOCKED","PENDING"];
-  const regimes = ["RISK_ON","RISK_ON_LATE","TRANSITION","RISK_OFF"];
-  const gexStates = ["NEGATIVE","POSITIVE","NEUTRAL"];
-  const volRegimes = ["COMPRESSED","NORMAL","EXPANDED"];
-  const thesisStates = ["STRONG_CONFIRMATION","MODERATE_CONFIRMATION","NEUTRAL","WEAKENING"];
+  // Static placeholder — no Math.random() so display is stable across renders.
+  // Only metals universe tickers get rows; other clusters stay empty until
+  // scanner_candidates table is populated.
+  const PLACEHOLDER_TICKERS = ['SLV','GLD','GDX','SILJ','SIL','COPX'];
   const cells = {};
   Object.entries(HEATMAP_CLUSTERS).forEach(([cluster, cfg]) => {
     cfg.tickers.forEach(ticker => {
-      const score = Math.floor(Math.random() * 100);
+      if (!PLACEHOLDER_TICKERS.includes(ticker)) return;
       cells[ticker] = {
-        ticker, cluster, heat_score: score,
-        recommended_structure: structs[Math.floor(Math.random() * structs.length)],
-        governor_status: score >= 70 ? "APPROVED" : score >= 55 ? "CONDITIONAL" : score >= 40 ? "PENDING" : "BLOCKED",
-        regime_state: regimes[Math.floor(Math.random() * regimes.length)],
-        gamma_state: gexStates[Math.floor(Math.random() * gexStates.length)],
-        vol_regime: volRegimes[Math.floor(Math.random() * volRegimes.length)],
-        thesis_health: thesisStates[Math.floor(Math.random() * thesisStates.length)],
-        iv_rank: Math.floor(Math.random() * 100),
-        sbs: Math.floor(Math.random() * 100),
-        complexity_index: Math.floor(Math.random() * 100),
-        convexity_score: Math.max(0, score + Math.floor(Math.random() * 20 - 10)),
-        legs: [
-          { side: "LONG", type: "CALL", strike: 30, expiry: "2027-01-15", delta: 0.65, tier: "ITM_ANCHOR" },
-          { side: "LONG", type: "CALL", strike: 35, expiry: "2027-01-15", delta: 0.45, tier: "ATM_CORE" },
-          { side: "LONG", type: "CALL", strike: 42, expiry: "2027-01-15", delta: 0.22, tier: "OTM_CONVEX" },
-        ],
-        payoff: { max_gain: "Unlimited", max_loss: "$2,400", breakeven: "$36.80", payoff_ratio: "8.2:1" },
-        greeks: { delta: 1.32, gamma: 0.18, vega: 4.60, theta: -0.42 },
-        dealer_positioning: Math.random() > 0.5 ? "SHORT_GAMMA" : "LONG_GAMMA",
-        gex_phase: ["FRESH","ESTABLISHED","MATURING","EXTENDED"][Math.floor(Math.random() * 4)],
-        scenarios: [
-          { move: "+5%",  vol: "flat", pnl: "+$620",  pnl_pct: "+26%" },
-          { move: "+10%", vol: "+10%", pnl: "+$2,180", pnl_pct: "+91%" },
-          { move: "+20%", vol: "+20%", pnl: "+$6,400", pnl_pct: "+267%" },
-          { move: "-5%",  vol: "+5%",  pnl: "-$380",   pnl_pct: "-16%" },
-          { move: "-10%", vol: "+15%", pnl: "-$1,100",  pnl_pct: "-46%" },
-        ],
-        flow: {
-          institutional_call_blocks: [{ strike: 35, lots: 420 }, { strike: 40, lots: 280 }],
-          institutional_put_blocks: [{ strike: 28, lots: 150 }],
-          put_call_ratio: 0.62,
-          retail_flow: "BULLISH",
-        },
+        ticker, cluster, heat_score: 0,
+        recommended_structure: "PENDING",
+        governor_status: "PENDING",
+        regime_state: "PENDING",
+        gamma_state: "NEUTRAL",
+        vol_regime: "NORMAL",
+        thesis_health: "NEUTRAL",
+        iv_rank: 0, sbs: 0, complexity_index: 0, convexity_score: 0,
+        legs: [],
+        payoff: {},
+        greeks: {},
+        dealer_positioning: "\u2014",
+        gex_phase: "\u2014",
+        scenarios: [],
+        flow: {},
       };
     });
   });
@@ -314,6 +294,7 @@ function generateMockHeatmapData() {
 function ConvexityMap() {
   const [cells, setCells] = useState({});
   const [loading, setLoading] = useState(true);
+  const [isPlaceholder, setIsPlaceholder] = useState(false);
   const [drawerTicker, setDrawerTicker] = useState(null);
   const [drawerTab, setDrawerTab] = useState("structure");
   const [sortBy, setSortBy] = useState("heat_score");
@@ -355,9 +336,10 @@ function ConvexityMap() {
             }
           }
         }
-      } catch (e) { console.warn("[ConvexityMap] Supabase fetch failed, using mock:", e); }
-      // Fallback to mock
+      } catch (e) { console.warn("[ConvexityMap] Supabase fetch failed, using placeholder:", e); }
+      // Fallback to static placeholder
       setCells(generateMockHeatmapData());
+      setIsPlaceholder(true);
       setLoading(false);
     }
     load();
@@ -645,6 +627,17 @@ function ConvexityMap() {
         }} />
       )}
       {drawerTicker && <Drawer />}
+
+      {/* Placeholder banner */}
+      {isPlaceholder && (
+        <div style={{
+          padding: '8px 14px', marginBottom: 12, borderRadius: 6,
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+          fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#f59e0b',
+        }}>
+          {'\u25CC'} PLACEHOLDER — scanner_candidates table not yet populated
+        </div>
+      )}
 
       {/* Header row */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -3513,7 +3506,22 @@ const OperatorCard = () => {
         console.warn('[OperatorCard] demark_signals query failed (table may not exist):', e);
       }
 
-      // Merge positions with guardian + reload + demark data; parse strategic_role from notes JSON
+      // Quinary: get latest scenario synthesis per ticker
+      let scenarioMap = {};
+      try {
+        const { data: scRows } = await sb
+          .from('scenario_synthesis')
+          .select('ticker, primary_scenario, primary_probability, overall_bias, confidence_score')
+          .order('run_ts', { ascending: false })
+          .limit(20);
+        (scRows || []).forEach(r => {
+          if (!scenarioMap[r.ticker]) scenarioMap[r.ticker] = r;
+        });
+      } catch(e) {
+        console.warn('[OperatorCard] scenario_synthesis query failed (table may not exist):', e);
+      }
+
+      // Merge positions with guardian + reload + demark + scenario data; parse strategic_role from notes JSON
       const merged = pos.map(p => {
         let meta = {};
         try { meta = JSON.parse(p.notes || '{}'); } catch(e) {}
@@ -3523,7 +3531,8 @@ const OperatorCard = () => {
           guardianRows: guardianMap[p.id] || [],
           guardian_state: guardianMap[p.id]?.[0]?.guardian_state || 'NO_DATA',
           reload: reloadMap[p.ticker] || null,
-          demark: demarkMap[p.ticker] || null
+          demark: demarkMap[p.ticker] || null,
+          scenario: scenarioMap[p.ticker] || null
         };
       });
 
@@ -3653,6 +3662,18 @@ const OperatorCard = () => {
                     </span>
                   )
                 ) : (
+                  <span style={{ color: COLORS.textDim }}>--</span>
+                )}
+              </div>
+              <div>
+                <span style={{ color: COLORS.textDim }}>THESIS: </span>
+                {c.scenario ? (() => {
+                  const sc = c.scenario;
+                  const short = {'CONTINUATION_DOWN':'DOWN','BULLISH_CONTINUATION':'UP','CHOP_CONSOLIDATION':'CHOP'}[sc.primary_scenario] || sc.primary_scenario;
+                  const pct = ' (' + Math.round((sc.primary_probability || 0) * 100) + '%)';
+                  const col = sc.overall_bias === 'BEARISH' ? '#ef4444' : sc.overall_bias === 'BULLISH' ? '#22c55e' : '#94a3b8';
+                  return <span style={{ color: col }}>{short}{pct}</span>;
+                })() : (
                   <span style={{ color: COLORS.textDim }}>--</span>
                 )}
               </div>
@@ -4586,6 +4607,92 @@ const ZoneCard = ({ ticker }) => {
   );
 };
 
+const ScenarioStrip = () => {
+  const [scenarios, setScenarios] = React.useState([]);
+  const [lastRun, setLastRun] = React.useState(null);
+  React.useEffect(() => {
+    const sb = getDataSupabase();
+    if (!sb) return;
+    sb.from('scenario_synthesis')
+      .select('*')
+      .order('run_ts', { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        if (!data || data.length === 0) return;
+        const byTicker = {};
+        data.forEach(r => { if (!byTicker[r.ticker]) byTicker[r.ticker] = r; });
+        setScenarios(Object.values(byTicker));
+        setLastRun(data[0].run_ts);
+      });
+  }, []);
+  const shortScen = s => ({
+    'CONTINUATION_DOWN': 'DOWN', 'BULLISH_CONTINUATION': 'UP',
+    'CHOP_CONSOLIDATION': 'CHOP', 'SHARP_REVERSAL': 'REVERSAL',
+    'SHARP_REVERSAL_DOWN': 'REVERSAL DN', 'BULLISH_REVERSAL': 'REVERSAL UP'
+  }[s] || (s || '--').replace(/_/g, ' '));
+  if (scenarios.length === 0) return (
+    <div style={{
+      fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#5a5e72',
+      padding: '10px 0', marginBottom: 16
+    }}>Scenario synthesis pending</div>
+  );
+  const biasColor = b => b === 'BULLISH' ? '#22c55e' : b === 'BEARISH' ? '#ef4444' : '#5a5e72';
+  const biasBg = b => b === 'BULLISH' ? 'rgba(34,197,94,0.10)' : b === 'BEARISH' ? 'rgba(239,68,68,0.10)' : 'rgba(107,114,128,0.10)';
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6 }}>
+        {scenarios.map(s => {
+          const bc = biasColor(s.overall_bias);
+          return (
+            <div key={s.ticker} style={{
+              minWidth: 155, padding: '10px 12px', borderRadius: 8,
+              background: 'rgba(15,20,30,0.6)', border: `1px solid ${bc}33`,
+              flexShrink: 0
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{
+                  fontFamily: "'JetBrains Mono', monospace", fontSize: 11, fontWeight: 700,
+                  background: '#92400e', color: '#fbbf24', padding: '1px 8px', borderRadius: 4
+                }}>{s.ticker}</span>
+                <span style={{
+                  fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 700,
+                  padding: '2px 7px', borderRadius: 999,
+                  background: biasBg(s.overall_bias), color: bc
+                }}>{s.overall_bias}</span>
+              </div>
+              <div style={{
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: bc,
+                marginBottom: 6, whiteSpace: 'nowrap'
+              }}>
+                {shortScen(s.primary_scenario)} {Math.round((s.primary_probability || 0) * 100)}%
+              </div>
+              <div style={{
+                width: '100%', height: 4, borderRadius: 2, background: '#1e293b',
+                marginBottom: 5, overflow: 'hidden'
+              }}>
+                <div style={{
+                  width: Math.round((s.confidence_score || 0) * 100) + '%',
+                  height: '100%', borderRadius: 2, background: bc
+                }} />
+              </div>
+              <div style={{
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#5a5e72'
+              }}>
+                {s.engines_agreement}/{s.engines_total} engines aligned
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{
+        fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#5a5e72', marginTop: 4
+      }}>
+        Scenario Synthesis {'\u00B7'} {lastRun ? new Date(lastRun).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '\u2014'}
+      </div>
+    </div>
+  );
+};
+
 const ZoneMapTab = () => {
   const [positions, setPositions] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -4656,6 +4763,7 @@ const ZoneMapTab = () => {
           </span>
         </span>
       </div>
+      <ScenarioStrip />
       {tickers.length === 0 && (
         <div style={{ color: COLORS.textDim, fontSize: 12 }}>No active tickers found.</div>
       )}
