@@ -1,0 +1,500 @@
+[Fri 03/20/2026 19:42:45.58] Starting MONOS nightly pipeline 
+============================================================
+MONOS NIGHTLY PIPELINE
+Timestamp: 2026-03-20T19:42:45.812992
+Mode:      LIVE
+============================================================
+
+[pipeline] Running Guardian Engine...
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GUARDIAN ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[pipeline] Guardian Engine error: 'charmap' codec can't encode character '\u2713' in position 48: character maps to <undefined>
+
+[pipeline] Running Reload Engine...
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+RELOAD ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[reload] Table check error: 'charmap' codec can't encode character '\u2713' in position 39: character maps to <undefined>
+
+[reload] Cannot write results — table missing. Exiting.
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GUARDIAN ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\mcala\Documents\convexity_engine\monos-conviction\guardian_engine.py", line 453, in <module>
+    main()
+  File "C:\Users\mcala\Documents\convexity_engine\monos-conviction\guardian_engine.py", line 333, in main
+    table_exists = ensure_table()
+                   ^^^^^^^^^^^^^^
+  File "C:\Users\mcala\Documents\convexity_engine\monos-conviction\guardian_engine.py", line 91, in ensure_table
+    print("[guardian] Table guardian_position_state exists \u2713")
+  File "C:\Users\mcala\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2713' in position 48: character maps to <undefined>
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+RELOAD ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[reload] Table check error: 'charmap' codec can't encode character '\u2713' in position 39: character maps to <undefined>
+
+[reload] Cannot write results — table missing. Exiting.
+[Fri 03/20/2026 19:43:03.53] Pipeline complete 
+[Fri 03/20/2026 19:47:01.78] Starting MONOS nightly pipeline 
+============================================================
+MONOS NIGHTLY PIPELINE
+Timestamp: 2026-03-20T19:47:01.991752
+Mode:      LIVE
+============================================================
+
+[pipeline] Running Guardian Engine...
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GUARDIAN ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[guardian] Table guardian_position_state exists [OK]
+
+[guardian] Fetching open positions...
+[guardian] Found 9 active positions
+
+============================================================
+GUARDIAN ENGINE — RUN COMPLETE
+============================================================
+Positions evaluated:  9
+Legs evaluated:       31
+HIGH urgency alerts:  3
+
+--- HIGH URGENCY --------------------------------------
+  [!] SLV   | LONG_PUT     | Strike    103 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | LONG_PUT     | Strike    105 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | SHORT_PUT    | Strike     95 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+
+--- HOLD ----------------------------------------------
+  [OK] SLV   | LONG_PUT     | Strike     94 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     84 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     85 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     95 | Exp 2026-12-31 | DTE 286 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     72 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike   68.5 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-03-31 | DTE  11 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     50 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     65 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2026-09-30 | DTE 194 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     90 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    100 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     40 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    110 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    120 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     90 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     95 | Exp 2026-06-18 | DTE  90 | HOLD
+
+Rows written to guardian_position_state: 31
+============================================================
+[pipeline] Guardian Engine complete
+
+[pipeline] Running Reload Engine...
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+RELOAD ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[reload] Table reload_stage_log exists [OK]
+
+[reload] Active tickers: ['SLV']
+
+============================================================
+RELOAD ENGINE — RUN COMPLETE
+============================================================
+Tickers evaluated:  1
+Rows written:       1
+
+O = EXHAUSTION  @ = ZONE_WATCH  # = ACCUMULATION  X = BLOCKED
+
+  @ SLV    | ZONE_WATCH             | allowed=N | confidence=0.25
+    Conditions: [2/3] YC1_guardian YC2_vol_clear .C3_at_zone .C4_zone_stall .C5_momentum
+    Next: WAIT_FOR_ZONE
+
+============================================================
+[pipeline] Reload Engine complete
+
+============================================================
+PIPELINE COMPLETE
+============================================================
+All engines ran successfully [OK]
+============================================================
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GUARDIAN ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[guardian] Table guardian_position_state exists [OK]
+
+[guardian] Fetching open positions...
+[guardian] Found 9 active positions
+
+============================================================
+GUARDIAN ENGINE — RUN COMPLETE
+============================================================
+Positions evaluated:  9
+Legs evaluated:       31
+HIGH urgency alerts:  3
+
+--- HIGH URGENCY --------------------------------------
+  [!] SLV   | LONG_PUT     | Strike    103 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | LONG_PUT     | Strike    105 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | SHORT_PUT    | Strike     95 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+
+--- HOLD ----------------------------------------------
+  [OK] SLV   | LONG_PUT     | Strike     94 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     84 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     85 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     95 | Exp 2026-12-31 | DTE 286 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     72 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike   68.5 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-03-31 | DTE  11 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     50 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     65 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2026-09-30 | DTE 194 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     90 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    100 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     40 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    110 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    120 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     90 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     95 | Exp 2026-06-18 | DTE  90 | HOLD
+
+Rows written to guardian_position_state: 31
+============================================================
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+RELOAD ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[reload] Table reload_stage_log exists [OK]
+
+[reload] Active tickers: ['SLV']
+
+============================================================
+RELOAD ENGINE — RUN COMPLETE
+============================================================
+Tickers evaluated:  1
+Rows written:       1
+
+O = EXHAUSTION  @ = ZONE_WATCH  # = ACCUMULATION  X = BLOCKED
+
+  @ SLV    | ZONE_WATCH             | allowed=N | confidence=0.25
+    Conditions: [2/3] YC1_guardian YC2_vol_clear .C3_at_zone .C4_zone_stall .C5_momentum
+    Next: WAIT_FOR_ZONE
+
+============================================================
+[Fri 03/20/2026 19:47:27.65] Pipeline complete 
+[Fri 03/20/2026 20:43:17.03] Starting MONOS nightly pipeline 
+============================================================
+MONOS NIGHTLY PIPELINE
+Timestamp: 2026-03-20T20:43:17.669508
+Mode:      LIVE
+============================================================
+
+[pipeline] Running Guardian Engine...
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GUARDIAN ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[guardian] Table guardian_position_state exists [OK]
+
+[guardian] Fetching open positions...
+[guardian] Found 9 active positions
+
+============================================================
+GUARDIAN ENGINE — RUN COMPLETE
+============================================================
+Positions evaluated:  9
+Legs evaluated:       31
+HIGH urgency alerts:  3
+
+--- HIGH URGENCY --------------------------------------
+  [!] SLV   | LONG_PUT     | Strike    103 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | LONG_PUT     | Strike    105 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | SHORT_PUT    | Strike     95 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+
+--- HOLD ----------------------------------------------
+  [OK] SLV   | LONG_PUT     | Strike     94 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     84 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     85 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     95 | Exp 2026-12-31 | DTE 286 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     72 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike   68.5 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-03-31 | DTE  11 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     50 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     65 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2026-09-30 | DTE 194 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     90 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    100 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     40 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    110 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    120 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     90 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     95 | Exp 2026-06-18 | DTE  90 | HOLD
+
+Rows written to guardian_position_state: 31
+============================================================
+[pipeline] Guardian Engine complete
+
+[pipeline] Running Reload Engine...
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+RELOAD ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[reload] Table reload_stage_log exists [OK]
+
+[reload] Active tickers: ['SLV']
+
+============================================================
+RELOAD ENGINE — RUN COMPLETE
+============================================================
+Tickers evaluated:  1
+Rows written:       1
+
+O = EXHAUSTION  @ = ZONE_WATCH  # = ACCUMULATION  X = BLOCKED
+
+  @ SLV    | ZONE_WATCH             | allowed=N | confidence=0.25
+    Conditions: [2/3] YC1_guardian YC2_vol_clear .C3_at_zone .C4_zone_stall .C5_momentum
+    Next: WAIT_FOR_ZONE
+
+============================================================
+[pipeline] Reload Engine complete
+
+============================================================
+PIPELINE COMPLETE
+============================================================
+All engines ran successfully [OK]
+============================================================
+[guardian] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GUARDIAN ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[guardian] Table guardian_position_state exists [OK]
+
+[guardian] Fetching open positions...
+[guardian] Found 9 active positions
+
+============================================================
+GUARDIAN ENGINE — RUN COMPLETE
+============================================================
+Positions evaluated:  9
+Legs evaluated:       31
+HIGH urgency alerts:  3
+
+--- HIGH URGENCY --------------------------------------
+  [!] SLV   | LONG_PUT     | Strike    103 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | LONG_PUT     | Strike    105 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+  [!] SLV   | SHORT_PUT    | Strike     95 | Exp 2026-03-31 | DTE  11 | CLOSE_BEFORE_DECAY
+
+--- HOLD ----------------------------------------------
+  [OK] SLV   | LONG_PUT     | Strike     94 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     84 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_PUT    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     85 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     95 | Exp 2026-12-31 | DTE 286 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike     72 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_PUT     | Strike   68.5 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-03-31 | DTE  11 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-04-17 | DTE  28 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     50 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     65 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     55 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     60 | Exp 2026-06-30 | DTE 102 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     70 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2026-09-30 | DTE 194 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     90 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    100 | Exp 2026-09-18 | DTE 182 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     40 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     80 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike     85 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    110 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | LONG_CALL    | Strike    120 | Exp 2027-01-15 | DTE 301 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     90 | Exp 2026-06-18 | DTE  90 | HOLD
+  [OK] SLV   | SHORT_CALL   | Strike     95 | Exp 2026-06-18 | DTE  90 | HOLD
+
+Rows written to guardian_position_state: 31
+============================================================
+[reload] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+RELOAD ENGINE — RUN START
+Date: 2026-03-20
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co…
+============================================================
+[reload] Table reload_stage_log exists [OK]
+
+[reload] Active tickers: ['SLV']
+
+============================================================
+RELOAD ENGINE — RUN COMPLETE
+============================================================
+Tickers evaluated:  1
+Rows written:       1
+
+O = EXHAUSTION  @ = ZONE_WATCH  # = ACCUMULATION  X = BLOCKED
+
+  @ SLV    | ZONE_WATCH             | allowed=N | confidence=0.25
+    Conditions: [2/3] YC1_guardian YC2_vol_clear .C3_at_zone .C4_zone_stall .C5_momentum
+    Next: WAIT_FOR_ZONE
+
+============================================================
+[gex] Loaded env from C:\Users\mcala\Documents\convexity_engine\monos-conviction\.env
+============================================================
+GEX ENGINE -- RUN START
+Date: 2026-03-20
+Time: 20:43:38
+Mode: LIVE
+Supabase: https://mxohdljknyiutacrqxpg.supabase.co...
+Polygon key: SET
+Tickers: SLV, GLD, GDX, SILJ, SIL
+============================================================
+
+--- SLV ---
+[gex] SLV spot (prev close): $61.52
+[gex] SLV: found 250 active contracts (next 120 days)
+[gex] SLV: fetching snapshots for 100 contracts...
+[gex] SLV: got 100 snapshots with data
+[gex] SLV: 87 contracts with OI + gamma
+[gex] SLV: snapshot written to gex_snapshots
+
+--- GLD ---
+[gex] GLD spot (prev close): $413.38
+[gex] GLD: found 250 active contracts (next 120 days)
+[gex] GLD: fetching snapshots for 100 contracts...
+[gex] GLD: got 100 snapshots with data
+[gex] GLD: 72 contracts with OI + gamma
+[gex] GLD: snapshot written to gex_snapshots
+
+--- GDX ---
+[gex] GDX spot (prev close): $80.12
+[gex] GDX: found 250 active contracts (next 120 days)
+[gex] GDX: fetching snapshots for 100 contracts...
+[gex] GDX: got 100 snapshots with data
+[gex] GDX: 80 contracts with OI + gamma
+[gex] GDX: snapshot written to gex_snapshots
+
+--- SILJ ---
+[gex] SILJ spot (prev close): $26.31
+[gex] SILJ: found 230 active contracts (next 120 days)
+[gex] SILJ: fetching snapshots for 100 contracts...
+[gex] SILJ: got 100 snapshots with data
+[gex] SILJ: 81 contracts with OI + gamma
+[gex] SILJ: snapshot written to gex_snapshots
+
+--- SIL ---
+[gex] SIL spot (prev close): $79.19
+[gex] SIL: found 148 active contracts (next 120 days)
+[gex] SIL: fetching snapshots for 100 contracts...
+[gex] SIL: got 100 snapshots with data
+[gex] SIL: 93 contracts with OI + gamma
+[gex] SIL: snapshot written to gex_snapshots
+
+============================================================
+GEX ENGINE -- RUN COMPLETE
+============================================================
+Tickers processed: 5
+Tickers skipped:   0
+
+  SLV   | spot $61.52 | net_gex: -2.80M
+        Flip: N/A | Put wall: $60.00 | Call wall: $62.00
+        Regime: NEGATIVE | Dealer: SHORT_GAMMA
+
+  GLD   | spot $413.38 | net_gex: 17.62M
+        Flip: $410.00 | Put wall: $350.00 | Call wall: $440.00
+        Regime: POSITIVE | Dealer: LONG_GAMMA
+
+  GDX   | spot $80.12 | net_gex: 5.01M
+        Flip: $65.00 | Put wall: $83.00 | Call wall: $84.00
+        Regime: POSITIVE | Dealer: LONG_GAMMA
+
+  SILJ  | spot $26.31 | net_gex: 1.54K
+        Flip: $24.00 | Put wall: $24.50 | Call wall: $28.50
+        Regime: POSITIVE | Dealer: LONG_GAMMA
+
+  SIL   | spot $79.19 | net_gex: 1.29M
+        Flip: $59.00 | Put wall: $77.00 | Call wall: $80.00
+        Regime: POSITIVE | Dealer: LONG_GAMMA
+
+============================================================
+[Fri 03/20/2026 20:48:49.26] Pipeline complete 

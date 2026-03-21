@@ -1,0 +1,91 @@
+{
+  "total": 9,
+  "overall": {
+    "total_trades": 9,
+    "win_rate": 77.78,
+    "avg_opt_return": 23.8333
+  },
+  "by_structure": {
+    "CALL_SPREAD": {
+      "original_count": 3,
+      "original_wr": 100.0,
+      "original_avg": 13.0,
+      "translated_count": 3,
+      "translated_wr": 100.0,
+      "translated_avg": 13.0
+    },
+    "LONG_CALL": {
+      "original_count": 3,
+      "original_wr": 66.67,
+      "original_avg": 45.98,
+      "translated_count": 3,
+      "translated_wr": 66.67,
+      "translated_avg": 45.98
+    },
+    "LONG_PUT": {
+      "original_count": 1,
+      "original_wr": 100.0,
+      "original_avg": 41.93,
+      "translated_count": 1,
+      "translated_wr": 100.0,
+      "translated_avg": 41.93
+    },
+    "PUT_SPREAD": {
+      "original_count": 2,
+      "original_wr": 50.0,
+      "original_avg": -2.185,
+      "translated_count": 2,
+      "translated_wr": 50.0,
+      "translated_avg": -2.185
+    }
+  },
+  "translation_impact": {
+    "structure_changed_count": 0,
+    "structure_changed_wr": 0.0,
+    "structure_changed_avg": null,
+    "structure_unchanged_count": 9,
+    "structure_unchanged_wr": 77.78,
+    "structure_unchanged_avg": 23.8333,
+    "boosted_count": 5,
+    "boosted_wr": 100.0,
+    "boosted_avg": 45.168,
+    "unboosted_count": 4,
+    "unboosted_wr": 50.0,
+    "unboosted_avg": -2.835
+  },
+  "by_rule": {
+    "C-MSA-01": {
+      "trades": 5,
+      "win_rate": 100.0,
+      "avg_return": 45.168
+    },
+    "C-MSA-04": {
+      "trades": 4,
+      "win_rate": 100.0,
+      "avg_return": 52.0475
+    }
+  },
+  "by_mode": {
+    "CONVEX": {
+      "trades": 3,
+      "win_rate": 100.0,
+      "avg_return": 64.1233
+    },
+    "HYBRID": {
+      "trades": 1,
+      "win_rate": 100.0,
+      "avg_return": 5.53
+    },
+    "MEAN_REVERSION": {
+      "trades": 1,
+      "win_rate": 0.0,
+      "avg_return": -12.5
+    },
+    "TACTICAL": {
+      "trades": 4,
+      "win_rate": 75.0,
+      "avg_return": 7.275
+    }
+  },
+  "formatted": "============================================================\n  MONOS DECISION vs OUTCOME REPORT\n============================================================\n\n  1. OVERALL\n  Total Trades              9\n  Win Rate                  77.78%\n  Avg Opt Return            23.83%\n\n  2. BY STRUCTURE\n  STRUCTURE         ORIG#  ORIG WR  ORIG AVG  TRANS#  TRANS WR  TRANS AVG\n  ------------------------------------------------------------------\n  CALL_SPREAD           3   100.0%    13.00%       3    100.0%     13.00%\n  LONG_CALL             3    66.7%    45.98%       3     66.7%     45.98%\n  LONG_PUT              1   100.0%    41.93%       1    100.0%     41.93%\n  PUT_SPREAD            2    50.0%    -2.19%       2     50.0%     -2.19%\n\n  3. TRANSLATION IMPACT\n  Struct Changed            0 trades  WR=0.0%  Avg=\u2014%\n  Struct Unchanged          9 trades  WR=77.78%  Avg=23.83%\n  Score Boosted             5 trades  WR=100.0%  Avg=45.17%\n  Not Boosted               4 trades  WR=50.0%  Avg=-2.83%\n  DELTA (boost vs no)       +48.0030%\n\n  4. BY RULE\n  RULE_ID       TRADES  WIN RATE   AVG RET\n  ----------------------------------------\n  C-MSA-01           5    100.0%    45.17%\n  C-MSA-04           4    100.0%    52.05%\n\n  5. BY MODE\n  MODE                  TRADES  WIN RATE   AVG RET\n  ------------------------------------------------\n  CONVEX                     3    100.0%    64.12%\n  HYBRID                     1    100.0%     5.53%\n  MEAN_REVERSION             1      0.0%   -12.50%\n  TACTICAL                   4     75.0%     7.28%\n\n============================================================"
+}

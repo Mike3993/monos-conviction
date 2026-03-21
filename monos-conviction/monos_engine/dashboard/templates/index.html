@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MONOS Backtest Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<!-- ─── HEADER ──────────────────────────────────────────────── -->
+<header>
+  <h1>MONOS Backtest Dashboard</h1>
+  <p class="subtitle">Conviction Engine &middot; Reporting Layer</p>
+</header>
+
+<!-- ─── TAB NAV ─────────────────────────────────────────────── -->
+<nav class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('backtest')">Backtest</button>
+  <button class="tab-btn" onclick="switchTab('execution')">Execution + Ledger</button>
+  <button class="tab-btn" onclick="switchTab('pnl')">Open PnL</button>
+  <button class="tab-btn" onclick="switchTab('dialogue')">Rules + Dialogue</button>
+  <button class="tab-btn" onclick="switchTab('decisions')">Decisions</button>
+  <button class="tab-btn" onclick="switchTab('eva')">Expected vs Actual</button>
+</nav>
+
+<!-- ================================================================
+     TAB 1 — BACKTEST (original content)
+     ================================================================ -->
+<div id="tab-backtest" class="tab-content active">
+
+<!-- ─── INPUT BAR ───────────────────────────────────────────── -->
+<section class="input-bar">
+  <input id="ticker" type="text" placeholder="Ticker (e.g. SPY)" value="SPY" autocomplete="off">
+  <button id="btn-example" onclick="runExample()">Run Example</button>
+  <button id="btn-multi"   onclick="runMultiHold()">Run Multi Hold</button>
+  <button id="btn-both"    onclick="runBoth()">Run Both</button>
+  <span id="spinner" class="spinner hidden"></span>
+</section>
+
+<!-- ─── BATCH RUNNER ────────────────────────────────────────── -->
+<section class="batch-bar">
+  <h2 class="batch-title">MONOS Batch Backtest</h2>
+  <div class="batch-controls">
+    <input id="batch-tickers" type="text" placeholder="SPY, QQQ, IWM, SMH, GLD, SLV" value="SPY, QQQ, IWM, SMH, GLD, SLV" autocomplete="off">
+    <button id="btn-batch" onclick="runBatch()">Run Batch</button>
+    <span id="batch-spinner" class="spinner hidden"></span>
+    <span id="batch-progress" class="batch-progress"></span>
+  </div>
+</section>
+
+<!-- ─── BATCH RESULTS ──────────────────────────────────────── -->
+<section id="batch-section" class="hidden">
+  <div class="batch-header">
+    <h2>Batch Results</h2>
+    <div class="action-row">
+      <button onclick="copyBatchResults()">Copy Results</button>
+      <button onclick="downloadBatchJSON()">Download JSON</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table id="batch-table">
+      <thead>
+        <tr>
+          <th>Ticker</th><th>Mode</th><th>Best Hold</th>
+          <th>Win Rate</th><th>Weighted Ret</th><th>Trades</th>
+          <th>MR</th><th>HC</th><th>Strength</th>
+        </tr>
+      </thead>
+      <tbody id="batch-body"></tbody>
+    </table>
+  </div>
+  <div id="batch-errors"></div>
+</section>
+
+<!-- ─── TOP TRADES ─────────────────────────────────────────── -->
+<section id="top-trades-section" class="hidden">
+  <div class="batch-header">
+    <h2>Top Trades</h2>
+    <div class="action-row">
+      <button onclick="copyTopTrades()">Copy Top Trades</button>
+    </div>
+  </div>
+  <div id="top-trades-cards" class="top-trades-grid"></div>
+</section>
+
+<!-- ─── STATUS ──────────────────────────────────────────────── -->
+<div id="status" class="status hidden"></div>
+
+<!-- ─── SUMMARY CARDS ───────────────────────────────────────── -->
+<section id="summary-section" class="hidden">
+  <h2>Summary</h2>
+  <div id="summary-cards" class="cards"></div>
+  <div class="action-row">
+    <button onclick="copySummary()">Copy Summary</button>
+    <button onclick="downloadJSON()">Download JSON</button>
+  </div>
+</section>
+
+<!-- ─── TRADE TABLE ─────────────────────────────────────────── -->
+<section id="trades-section" class="hidden">
+  <h2>Trades</h2>
+  <div class="table-wrap">
+    <table id="trades-table">
+      <thead>
+        <tr>
+          <th>Entry</th><th>Exit</th><th>Signal</th><th>Mode</th>
+          <th>Structure</th><th>Conf</th><th>MSA</th>
+          <th>UND%</th><th>OPT%</th><th>Exit Reason</th>
+          <th>Hold</th><th>Win</th>
+        </tr>
+      </thead>
+      <tbody id="trades-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── MULTI-HOLD TABLE ────────────────────────────────────── -->
+<section id="multi-section" class="hidden">
+  <h2>Multi-Hold Comparison</h2>
+  <div class="table-wrap">
+    <table id="multi-table">
+      <thead>
+        <tr>
+          <th>Hold</th><th>Trades</th><th>Win%</th>
+          <th>Total Ret</th><th>Wgt Ret</th><th>MSA Wgt</th><th>Avg Ret</th>
+        </tr>
+      </thead>
+      <tbody id="multi-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── CONFIDENCE BUCKETS ──────────────────────────────────── -->
+<section id="conf-section" class="hidden">
+  <h2>Confidence Buckets</h2>
+  <div class="table-wrap">
+    <table id="conf-table">
+      <thead>
+        <tr><th>Bucket</th><th>Trades</th><th>Win%</th><th>Avg Ret</th></tr>
+      </thead>
+      <tbody id="conf-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── RAW JSON ────────────────────────────────────────────── -->
+<section id="json-section" class="hidden">
+  <h2 class="collapsible" onclick="toggleJSON()">Raw JSON <span id="json-toggle">&#9654;</span></h2>
+  <div id="json-wrap" class="json-wrap hidden">
+    <button onclick="copyJSON()">Copy JSON</button>
+    <pre id="json-content"></pre>
+  </div>
+</section>
+
+</div><!-- end tab-backtest -->
+
+<!-- ================================================================
+     TAB 2 — EXECUTION + LEDGER
+     ================================================================ -->
+<div id="tab-execution" class="tab-content">
+
+<!-- ─── SEC 1: TOP TRADES PANEL ────────────────────────────── -->
+<section id="exec-top-panel">
+  <div class="batch-header">
+    <h2>Top Trades Panel</h2>
+    <div class="action-row">
+      <button onclick="generateExecSpecs()">Generate Trade Specs</button>
+      <button onclick="copyExecTopTrades()">Copy</button>
+    </div>
+  </div>
+  <div id="exec-top-cards" class="top-trades-grid">
+    <p class="placeholder-text">Run a batch on the Backtest tab first, then return here to see top trades.</p>
+  </div>
+</section>
+
+<!-- ─── SEC 2: TRADE GENERATOR ─────────────────────────────── -->
+<section id="exec-specs-section" class="hidden">
+  <h2>Trade Specs</h2>
+  <div id="exec-specs-cards" class="top-trades-grid"></div>
+  <div class="action-row" style="margin-top:10px">
+    <button onclick="copyExecSpecs()">Copy Specs</button>
+  </div>
+</section>
+
+<!-- ─── TRADE ENTRY MODAL (overlay) ────────────────────────── -->
+<div id="trade-modal-overlay" class="modal-overlay hidden" onclick="closeTradeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="modal-title">Add Trade to Ledger</h3>
+      <button class="modal-close" onclick="closeTradeModal()">&times;</button>
+    </div>
+    <!-- Live pricing banner -->
+    <div id="m-pricing-banner" class="pricing-banner hidden">
+      <div class="pricing-row">
+        <span class="pricing-label">Contract</span>
+        <span id="m-contract-sym" class="pricing-val mono"></span>
+      </div>
+      <div class="pricing-grid">
+        <div><span class="pricing-label">Bid</span><span id="m-bid" class="pricing-val pos">—</span></div>
+        <div><span class="pricing-label">Ask</span><span id="m-ask" class="pricing-val neg">—</span></div>
+        <div><span class="pricing-label">Mid</span><span id="m-mid" class="pricing-val">—</span></div>
+        <div><span class="pricing-label">Spread</span><span id="m-spread" class="pricing-val">—</span></div>
+        <div><span class="pricing-label">Suggested</span><span id="m-suggested" class="pricing-val" style="color:var(--accent);font-weight:700">—</span></div>
+        <div><span class="pricing-label">DTE</span><span id="m-dte" class="pricing-val">—</span></div>
+      </div>
+    </div>
+    <div id="m-pricing-loading" class="pricing-loading hidden">Fetching live chain...</div>
+    <div class="form-grid">
+      <div><label>Date Open</label><input id="m-date" type="date"></div>
+      <div><label>Ticker</label><input id="m-ticker" type="text" placeholder="SPY"></div>
+      <div><label>Direction</label><select id="m-direction"><option>LONG</option><option>SHORT</option></select></div>
+      <div><label>Mode</label><select id="m-mode"><option>TACTICAL</option><option>HYBRID</option><option>CONVEX</option><option>MEAN_REVERSION</option></select></div>
+      <div><label>Structure</label><select id="m-structure"><option>LONG_CALL</option><option>LONG_PUT</option><option>CALL_SPREAD</option><option>PUT_SPREAD</option></select></div>
+      <div><label>Expiration</label><input id="m-expiration" type="date"></div>
+      <div><label>Strike</label><input id="m-strike" type="text" placeholder="ATM / 450C"></div>
+      <div><label>Entry Price</label><input id="m-entry" type="number" step="0.01" placeholder="0.00"></div>
+      <div><label>Contracts</label><input id="m-contracts" type="number" value="1" min="1"></div>
+      <div><label>Hold Days</label><input id="m-hold" type="number" placeholder="2"></div>
+      <div><label>Confidence</label><input id="m-conf" type="number" step="0.1" placeholder="65"></div>
+      <div><label>Expected Return %</label><input id="m-expected" type="number" step="0.01" placeholder="5.0"></div>
+    </div>
+    <input type="hidden" id="m-contract-symbol">
+    <input type="hidden" id="m-quoted-bid">
+    <input type="hidden" id="m-quoted-ask">
+    <input type="hidden" id="m-quoted-mid">
+    <input type="hidden" id="m-suggested-price">
+    <div style="margin-top:10px">
+      <label style="font-size:11px;color:var(--text-dim);text-transform:uppercase">Notes</label>
+      <input id="m-notes" type="text" placeholder="Optional notes..." style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:13px;padding:6px 10px;outline:none;font-family:var(--mono);margin-top:4px">
+    </div>
+    <div class="action-row" style="margin-top:14px">
+      <button onclick="commitTrade()">Commit Trade</button>
+      <button onclick="closeTradeModal()" style="background:var(--bg-input);border:1px solid var(--border)">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── CLOSE TRADE MODAL ──────────────────────────────────── -->
+<div id="close-modal-overlay" class="modal-overlay hidden" onclick="closeCloseModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Close Trade #<span id="cm-id-label"></span></h3>
+      <button class="modal-close" onclick="closeCloseModal()">&times;</button>
+    </div>
+    <input type="hidden" id="cm-id">
+    <input type="hidden" id="cm-contract-symbol">
+    <!-- Live exit pricing banner -->
+    <div id="cm-pricing-banner" class="pricing-banner hidden">
+      <div class="pricing-row">
+        <span class="pricing-label">Contract</span>
+        <span id="cm-contract-sym" class="pricing-val mono"></span>
+      </div>
+      <div class="pricing-grid">
+        <div><span class="pricing-label">Bid</span><span id="cm-bid" class="pricing-val pos">—</span></div>
+        <div><span class="pricing-label">Ask</span><span id="cm-ask" class="pricing-val neg">—</span></div>
+        <div><span class="pricing-label">Mid</span><span id="cm-mid" class="pricing-val">—</span></div>
+        <div><span class="pricing-label">Spread</span><span id="cm-spread" class="pricing-val">—</span></div>
+        <div><span class="pricing-label">Suggested Exit</span><span id="cm-suggested" class="pricing-val" style="color:var(--accent);font-weight:700">—</span></div>
+      </div>
+    </div>
+    <div id="cm-pricing-loading" class="pricing-loading hidden">Fetching exit quote...</div>
+    <div class="form-grid">
+      <div><label>Exit Price</label><input id="cm-exit" type="number" step="0.01" placeholder="0.00"></div>
+      <div><label>Date Close</label><input id="cm-date-close" type="date"></div>
+    </div>
+    <div style="margin-top:10px">
+      <label style="font-size:11px;color:var(--text-dim);text-transform:uppercase">Close Notes</label>
+      <input id="cm-close-notes" type="text" placeholder="Optional..." style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:13px;padding:6px 10px;outline:none;font-family:var(--mono);margin-top:4px">
+    </div>
+    <div class="action-row" style="margin-top:14px">
+      <button onclick="submitCloseTrade()">Close Trade</button>
+      <button onclick="closeCloseModal()" style="background:var(--bg-input);border:1px solid var(--border)">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── SEC 3: TRADE LEDGER ────────────────────────────────── -->
+<section id="exec-ledger-section">
+  <div class="batch-header">
+    <h2>Trade Ledger</h2>
+    <div class="action-row">
+      <button onclick="openTradeModal()">+ Add Trade</button>
+      <button onclick="refreshLedger()">Refresh</button>
+    </div>
+  </div>
+  <div class="table-wrap" style="margin-top:12px">
+    <table id="ledger-table">
+      <thead>
+        <tr>
+          <th>ID</th><th>Opened</th><th>Ticker</th><th>Dir</th><th>Mode</th>
+          <th>Structure</th><th>Strike</th><th>Entry</th><th>Exit</th>
+          <th>Ctrs</th><th>PnL</th><th>Ret%</th>
+          <th>W/L</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="ledger-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── SEC 4: PERFORMANCE SUMMARY ─────────────────────────── -->
+<section id="exec-perf-section">
+  <h2>Performance Summary</h2>
+  <div id="exec-perf-cards" class="cards">
+    <p class="placeholder-text">Close some trades to see performance stats.</p>
+  </div>
+</section>
+
+<!-- ─── SEC 5: EDGE DIAGNOSTICS ────────────────────────────── -->
+<section id="exec-edge-section" class="hidden">
+  <h2>Edge Diagnostics</h2>
+  <div id="exec-edge-cards" class="cards"></div>
+</section>
+
+<!-- ─── EXEC STATUS ────────────────────────────────────────── -->
+<div id="exec-status" class="status hidden"></div>
+
+</div><!-- end tab-execution -->
+
+<!-- ================================================================
+     TAB 3 — OPEN PnL + EXIT RECOMMENDATIONS
+     ================================================================ -->
+<div id="tab-pnl" class="tab-content">
+
+<!-- ─── CONTROLS ───────────────────────────────────────────── -->
+<section class="pnl-controls">
+  <div class="batch-header">
+    <h2>Open PnL + Exit Recommendations</h2>
+    <div class="action-row">
+      <button onclick="refreshPnL()">Refresh Now</button>
+      <button id="btn-pnl-auto" onclick="togglePnLAuto()">Auto-Refresh: OFF</button>
+      <button onclick="copyExitSummary()">Copy Exit Summary</button>
+      <button onclick="downloadPnLJSON()">Download JSON</button>
+    </div>
+  </div>
+  <div class="pnl-ticker">
+    <span id="pnl-last-update" class="pnl-timestamp"></span>
+    <span id="pnl-auto-indicator" class="pnl-auto-off"></span>
+  </div>
+</section>
+
+<!-- ─── PnL SUMMARY ────────────────────────────────────────── -->
+<section id="pnl-summary-section">
+  <div id="pnl-summary-cards" class="cards">
+    <p class="placeholder-text">No open trades. Add trades in the Execution tab first.</p>
+  </div>
+</section>
+
+<!-- ─── URGENT ACTIONS ─────────────────────────────────────── -->
+<section id="pnl-urgent-section" class="hidden">
+  <h2 class="urgent-title">Urgent Actions Required</h2>
+  <div id="pnl-urgent-list"></div>
+</section>
+
+<!-- ─── PnL TABLE ──────────────────────────────────────────── -->
+<section id="pnl-table-section" class="hidden">
+  <h2>All Positions</h2>
+  <div class="table-wrap">
+    <table id="pnl-table">
+      <thead>
+        <tr>
+          <th>ID</th><th>Ticker</th><th>Dir</th><th>Mode</th>
+          <th>Structure</th><th>Ctrs</th><th>Entry</th><th>Current</th>
+          <th>PnL $</th><th>PnL %</th><th>Days</th>
+          <th>To TP</th><th>To SL</th>
+          <th>Exit State</th><th>Urgency</th><th>Tags</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="pnl-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── PARTIAL CLOSE MODAL ────────────────────────────────── -->
+<div id="partial-modal-overlay" class="modal-overlay hidden" onclick="closePartialModal(event)">
+  <div class="modal modal-sm" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Partial Close — Trade #<span id="pm-id-label"></span></h3>
+      <button class="modal-close" onclick="closePartialModal()">&times;</button>
+    </div>
+    <input type="hidden" id="pm-id">
+    <div id="pm-info" style="font-size:13px;color:var(--text-dim);margin-bottom:12px"></div>
+    <div class="form-grid">
+      <div><label>Contracts to Close</label><input id="pm-contracts" type="number" min="1" value="1"></div>
+      <div><label>Exit Price</label><input id="pm-exit" type="number" step="0.01" placeholder="0.00"></div>
+      <div><label>Date Close</label><input id="pm-date" type="date"></div>
+    </div>
+    <div class="action-row" style="margin-top:14px">
+      <button onclick="submitPartialClose()">Partial Close</button>
+      <button onclick="closePartialModal()" style="background:var(--bg-input);border:1px solid var(--border)">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── PnL STATUS ─────────────────────────────────────────── -->
+<div id="pnl-status" class="status hidden"></div>
+
+</div><!-- end tab-pnl -->
+
+<!-- ================================================================
+     TAB 4 — RULES & DIALOGUE
+     ================================================================ -->
+<div id="tab-dialogue" class="tab-content">
+
+<section class="dialogue-controls">
+  <div class="batch-header">
+    <h2>Rules + Trade Dialogue</h2>
+    <div class="action-row">
+      <button onclick="loadDialogue()">Generate Dialogue</button>
+      <button onclick="copyAllDialogue()">Copy All</button>
+    </div>
+  </div>
+  <p id="dialogue-hint" class="placeholder-text">Run a batch on the Backtest tab first. Top trades will be analyzed here with full reasoning.</p>
+</section>
+
+<div id="dialogue-cards"></div>
+
+<div id="dialogue-status" class="status hidden"></div>
+
+</div><!-- end tab-dialogue -->
+
+<!-- ================================================================
+     TAB 5 — DECISION REPORT
+     ================================================================ -->
+<div id="tab-decisions" class="tab-content">
+
+<section class="batch-header" style="margin-bottom:16px">
+  <h2>Decision vs Outcome Report</h2>
+  <div class="action-row">
+    <button onclick="loadDecisionReport()">Refresh</button>
+    <button onclick="copyDecisionReport()">Copy Report</button>
+  </div>
+</section>
+
+<!-- Summary -->
+<section id="dec-summary-section">
+  <div id="dec-summary-cards" class="cards">
+    <p class="placeholder-text">Run batches and close trades to populate the decision report.</p>
+  </div>
+</section>
+
+<!-- Translation Impact -->
+<section id="dec-impact-section" class="hidden">
+  <h2>Translation Impact</h2>
+  <div id="dec-impact-cards" class="cards"></div>
+</section>
+
+<!-- By Mode -->
+<section id="dec-mode-section" class="hidden">
+  <h2>Performance by Mode</h2>
+  <div class="table-wrap">
+    <table id="dec-mode-table">
+      <thead><tr><th>Mode</th><th>Trades</th><th>Win Rate</th><th>Avg Return</th></tr></thead>
+      <tbody id="dec-mode-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- By Rule -->
+<section id="dec-rule-section" class="hidden">
+  <h2>Performance by Rule</h2>
+  <div class="table-wrap">
+    <table id="dec-rule-table">
+      <thead><tr><th>Rule ID</th><th>Trades</th><th>Win Rate</th><th>Avg Return</th></tr></thead>
+      <tbody id="dec-rule-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- By Structure -->
+<section id="dec-struct-section" class="hidden">
+  <h2>Performance by Structure</h2>
+  <div class="table-wrap">
+    <table id="dec-struct-table">
+      <thead>
+        <tr>
+          <th>Structure</th>
+          <th>Orig #</th><th>Orig WR</th><th>Orig Avg</th>
+          <th>Trans #</th><th>Trans WR</th><th>Trans Avg</th>
+        </tr>
+      </thead>
+      <tbody id="dec-struct-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<div id="dec-status" class="status hidden"></div>
+
+</div><!-- end tab-decisions -->
+
+<!-- ================================================================
+     TAB 6 — EXPECTED vs ACTUAL
+     ================================================================ -->
+<div id="tab-eva" class="tab-content">
+
+<!-- ─── CONTROLS ───────────────────────────────────────────── -->
+<section class="eva-controls">
+  <div class="batch-header">
+    <h2>Expected vs Actual Analysis</h2>
+    <div class="action-row">
+      <button onclick="loadEVA()">Refresh</button>
+      <button onclick="copyEVA()">Copy Report</button>
+    </div>
+  </div>
+</section>
+
+<!-- ─── SUMMARY STATS ──────────────────────────────────────── -->
+<section id="eva-stats-section">
+  <h2>Summary</h2>
+  <div id="eva-stats-cards" class="cards">
+    <p class="placeholder-text">Close some trades in the Execution tab to see analysis here.</p>
+  </div>
+</section>
+
+<!-- ─── MODE BREAKDOWN ─────────────────────────────────────── -->
+<section id="eva-mode-section" class="hidden">
+  <h2>Return by Mode</h2>
+  <div class="table-wrap">
+    <table id="eva-mode-table">
+      <thead>
+        <tr>
+          <th>Mode</th><th>Trades</th><th>Avg Expected</th><th>Avg Actual</th>
+          <th>Avg Gap</th><th>Win Rate</th><th>Total Return</th><th>Rating</th>
+        </tr>
+      </thead>
+      <tbody id="eva-mode-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── TRADE TABLE ────────────────────────────────────────── -->
+<section id="eva-table-section" class="hidden">
+  <h2>Trade-by-Trade</h2>
+  <div class="table-wrap">
+    <table id="eva-table">
+      <thead>
+        <tr>
+          <th>ID</th><th>Ticker</th><th>Mode</th><th>Structure</th>
+          <th>Expected</th><th>Actual</th><th>Gap</th><th>W/L</th>
+        </tr>
+      </thead>
+      <tbody id="eva-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── CHARTS ─────────────────────────────────────────────── -->
+<section id="eva-charts-section" class="hidden">
+  <h2>Charts</h2>
+  <div class="eva-chart-grid">
+    <div class="eva-chart-box">
+      <h3>Expected vs Actual Scatter</h3>
+      <canvas id="eva-scatter-canvas" width="560" height="340"></canvas>
+    </div>
+    <div class="eva-chart-box">
+      <h3>Return Distribution by Mode</h3>
+      <canvas id="eva-bar-canvas" width="560" height="340"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- ─── DECISION QUALITY ────────────────────────────────────── -->
+<section id="dq-section" class="hidden">
+  <div class="batch-header">
+    <h2>Decision Quality</h2>
+    <div class="action-row">
+      <button onclick="copyDQ()">Copy Report</button>
+    </div>
+  </div>
+
+  <!-- Accuracy cards -->
+  <div id="dq-accuracy-cards" class="cards" style="margin-bottom:16px"></div>
+
+  <!-- Quality distribution -->
+  <div class="eva-chart-grid" style="margin-bottom:16px">
+    <div>
+      <h3 style="font-size:13px;color:var(--text-dim);margin-bottom:8px">Exit Quality Distribution</h3>
+      <div id="dq-dist-bars"></div>
+    </div>
+    <div>
+      <h3 style="font-size:13px;color:var(--text-dim);margin-bottom:8px">Mode Decision Quality</h3>
+      <div class="table-wrap">
+        <table id="dq-mode-table">
+          <thead>
+            <tr><th>Mode</th><th>Trades</th><th>Optimal</th><th>Early</th><th>Late</th><th>Stopped</th><th>Precision</th><th>Discipline</th></tr>
+          </thead>
+          <tbody id="dq-mode-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trade-level quality -->
+  <div class="table-wrap">
+    <table id="dq-trade-table">
+      <thead>
+        <tr>
+          <th>ID</th><th>Ticker</th><th>Mode</th><th>Expected</th><th>Actual</th>
+          <th>Gap</th><th>Quality</th><th>W/L</th>
+        </tr>
+      </thead>
+      <tbody id="dq-trade-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── EVA STATUS ─────────────────────────────────────────── -->
+<div id="eva-status" class="status hidden"></div>
+
+</div><!-- end tab-eva -->
+
+<script src="/static/app.js"></script>
+</body>
+</html>
