@@ -1439,84 +1439,254 @@ function generatePortfolioMock() {
 }
 
 function PortfolioStructures() {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [actionLog, setActionLog] = useState(null);
-  const [drawerTicker, setDrawerTicker] = useState(null);
+  const [positions, setPositions] = React.useState([]);
+  const [scenMap, setScenMap] = React.useState({});
+  const [loading, setLoading] = React.useState(true);
 
-  useEffect(() => {
-    async function load() {
+  React.useEffect(() => {
+    const load = async () => {
       setLoading(true);
-      try {
-        const sbUrl = DATA_SB_URL;
-        const sbKey = DATA_SB_KEY;
-        if (sbUrl && sbKey) {
-          console.log("[MONOS_UI FETCH]", "Portfolio", "scanner_structure_library", "[DATA_SUPABASE]");
-          const resp = await fetch(sbUrl+"/rest/v1/scanner_structure_library?order=convexity_score.desc&limit=50",{ headers:{ apikey:sbKey,Authorization:"Bearer "+sbKey } });
-          if (resp.ok) { const data = await resp.json(); if (data && data.length > 0) { setRows(data); setLoading(false); return; } }
-        }
-      } catch(e) {}
-      setRows(generatePortfolioMock());
+      const sb = getDataSupabase();
+      if (!sb) { setLoading(false); return; }
+      const { data: pos } = await sb
+        .schema('ledger')
+        .from('positions')
+        .select('*, legs:legs(*)')
+        .eq('is_active', true)
+        .order('entry_date', { ascending: false });
+      const { data: synthesis } = await sb
+        .from('scenario_synthesis')
+        .select('*')
+        .order('run_ts', { ascending: false })
+        .limit(20);
+      const sm = {};
+      (synthesis || []).forEach(r => { if (!sm[r.ticker]) sm[r.ticker] = r; });
+      setScenMap(sm);
+      setPositions(pos || []);
       setLoading(false);
-    }
+    };
     load();
   }, []);
 
-  function handleAction(ticker, action) {
-    setActionLog({ ticker, action, ts: new Date().toLocaleTimeString() });
-    setTimeout(() => setActionLog(null), 3000);
-  }
+  const mono = { fontFamily: "'JetBrains Mono', monospace" };
+  const hasData = positions.length > 0;
+  const allLegs = positions.flatMap(p => p.legs || []);
+  const totalLegs = allLegs.length;
 
-  const thStyle = { fontSize:9,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:COLORS.textDim,padding:"8px 10px",borderBottom:`1px solid ${COLORS.border}`,textAlign:"left" };
-  const tdStyle = { padding:"8px 10px",borderBottom:`1px solid ${COLORS.border}08`,fontSize:12,fontFamily:"'JetBrains Mono',monospace" };
-  const btnStyle = (clr) => ({ background:`${clr}15`,border:`1px solid ${clr}30`,borderRadius:4,color:clr,fontSize:9,fontWeight:700,padding:"3px 8px",cursor:"pointer",letterSpacing:0.5 });
+  // Structure type counts
+  const typeCounts = {};
+  positions.forEach(p => {
+    const t = p.structure_type || 'UNKNOWN';
+    typeCounts[t] = (typeCounts[t] || 0) + 1;
+  });
+  const typeStr = Object.entries(typeCounts).map(([k, v]) => v + ' ' + k.replace(/_/g, ' ')).join(' \u00B7 ');
+
+  // DTE distribution
+  const now = new Date();
+  let shortTerm = 0, midTerm = 0, longTerm = 0;
+  allLegs.forEach(l => {
+    if (!l.expiry) return;
+    const dte = Math.max(0, Math.round((new Date(l.expiry) - now) / 86400000));
+    if (dte < 30) shortTerm++;
+    else if (dte <= 90) midTerm++;
+    else longTerm++;
+  });
+
+  // Thesis alignment from scenMap
+  let bearCount = 0, bullCount = 0, neutCount = 0;
+  const tickerSet = [...new Set(positions.map(p => p.ticker))];
+  tickerSet.forEach(t => {
+    const sc = scenMap[t];
+    if (!sc) { neutCount++; return; }
+    if (sc.overall_bias === 'BEARISH') bearCount++;
+    else if (sc.overall_bias === 'BULLISH') bullCount++;
+    else neutCount++;
+  });
+
+  // Group by strategic_role
+  const roleOrder = ['CORE', 'HEDGE', 'INCOME', 'CONVEXITY'];
+  const grouped = {};
+  positions.forEach(p => {
+    let meta = {};
+    try { meta = JSON.parse(p.notes || '{}'); } catch(e) {}
+    const role = meta.strategic_role || p.strategic_role || 'CORE';
+    if (!grouped[role]) grouped[role] = [];
+    grouped[role].push({ ...p, _role: role, _meta: meta });
+  });
+  const sortedRoles = roleOrder.filter(r => grouped[r]).concat(
+    Object.keys(grouped).filter(r => !roleOrder.includes(r))
+  );
+
+  const legColor = lt => {
+    if (!lt) return '#94a3b8';
+    const u = lt.toUpperCase();
+    if (u.startsWith('LONG')) return '#22c55e';
+    if (u.startsWith('SHORT')) return '#ef4444';
+    return '#94a3b8';
+  };
+  const biasColor = b => b === 'BULLISH' ? '#22c55e' : b === 'BEARISH' ? '#ef4444' : '#5a5e72';
+
+  const metricBox = (label, value, subtext) => (
+    <div style={{
+      flex: '1 1 140px', padding: '10px 14px', borderRadius: 8,
+      background: 'rgba(15,20,30,0.6)', border: '1px solid #1e293b'
+    }}>
+      <div style={{ ...mono, fontSize: 9, color: '#5a5e72', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+      <div style={{ ...mono, fontSize: 18, fontWeight: 700, color: '#e2e8f0' }}>{value}</div>
+      {subtext && <div style={{ ...mono, fontSize: 9, color: '#94a3b8', marginTop: 2 }}>{subtext}</div>}
+    </div>
+  );
 
   return (
     <div>
-      <Lbl>Portfolio — Active Structures</Lbl>
-      {actionLog && (
-        <div style={{ marginBottom:10,padding:"8px 14px",borderRadius:8,background:`${COLORS.accent}12`,border:`1px solid ${COLORS.accent}30`,fontSize:11 }}>
-          <Mono s={11} c={COLORS.accent}>{actionLog.action.toUpperCase()}</Mono>
-          <span style={{ color:COLORS.textDim }}> queued for </span>
-          <Mono s={11} c={COLORS.text}>{actionLog.ticker}</Mono>
-          <span style={{ color:COLORS.textDim }}> at {actionLog.ts}</span>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div>
+          <div style={{ ...mono, fontSize: 11, fontWeight: 700, letterSpacing: 2, color: '#f59e0b', textTransform: 'uppercase', marginBottom: 2 }}>
+            PORTFOLIO STRUCTURES
+          </div>
+          <div style={{ ...mono, fontSize: 11, color: '#5a5e72' }}>
+            {positions.length} active position{positions.length !== 1 ? 's' : ''} {'\u00B7'} {totalLegs} total legs
+          </div>
         </div>
-      )}
-      {loading ? <Card style={{ textAlign:"center",padding:40 }}><Mono s={14} c={COLORS.textDim}>Loading...</Mono></Card> : (
-        <Card style={{ padding:0,overflow:"hidden" }}>
-          <div style={{ overflowX:"auto" }}>
-            <table style={{ width:"100%",borderCollapse:"collapse" }}>
-              <thead><tr>
-                <th style={thStyle}>TICKER</th><th style={thStyle}>STRUCTURE</th><th style={thStyle}>CONVEXITY</th><th style={thStyle}>GOVERNOR</th><th style={thStyle}>P&L</th><th style={thStyle}>P&L %</th><th style={thStyle}>ACTIONS</th>
-              </tr></thead>
-              <tbody>
-                {rows.map(r => {
-                  const govClr = r.governor_status==="APPROVED"?COLORS.greenDim:r.governor_status==="CONDITIONAL"?COLORS.amber:COLORS.redDim;
-                  const pnlClr = (r.current_pnl||0)>=0?COLORS.greenDim:COLORS.redDim;
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
+            background: hasData ? '#22c55e' : '#6b7280',
+            boxShadow: hasData ? '0 0 5px rgba(34,197,94,0.5)' : 'none'
+          }} />
+          <span style={{ ...mono, fontSize: 10, color: hasData ? '#86efac' : '#6b7280' }}>
+            {hasData ? 'Live' : 'No data'}
+          </span>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <span style={{ ...mono, fontSize: 11, color: '#5a5e72' }}>Loading portfolio...</span>
+        </div>
+      ) : !hasData ? (
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <span style={{ ...mono, fontSize: 12, color: '#5a5e72' }}>
+            No active positions {'\u2014'} add via CV3 Positions tab
+          </span>
+        </div>
+      ) : (
+        <div>
+          {/* Summary strip */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+            {metricBox('Positions', positions.length, tickerSet.join(', '))}
+            {metricBox('Structures', Object.keys(typeCounts).length, typeStr)}
+            {metricBox('DTE Layers', `${shortTerm}/${midTerm}/${longTerm}`, '<30d / 30-90d / >90d')}
+            {metricBox('Thesis', `${bullCount}B ${bearCount}R ${neutCount}N`,
+              bullCount > bearCount ? 'Net bullish' : bearCount > bullCount ? 'Net bearish' : 'Mixed')}
+          </div>
+
+          {/* Position cards grouped by role */}
+          {sortedRoles.map(role => (
+            <div key={role} style={{ marginBottom: 20 }}>
+              <div style={{
+                ...mono, fontSize: 10, fontWeight: 700, letterSpacing: 2,
+                color: '#f59e0b', textTransform: 'uppercase', marginBottom: 8,
+                paddingBottom: 4, borderBottom: '1px solid rgba(30,41,59,0.5)'
+              }}>{role} POSITIONS</div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {grouped[role].map(p => {
+                  const sc = scenMap[p.ticker];
+                  const legs = p.legs || [];
+                  let meta = p._meta || {};
+                  const layer = meta.layer || p.layer || null;
+
                   return (
-                    <tr key={r.ticker} style={{ cursor:"pointer" }} onClick={() => setDrawerTicker(r.ticker)}
-                      onMouseEnter={e=>e.currentTarget.style.background=COLORS.bgHover} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <td style={{ ...tdStyle,fontWeight:700,color:COLORS.text }}>{r.ticker}</td>
-                      <td style={{ ...tdStyle,fontSize:10,color:COLORS.accent }}>{(r.structure_type||"—").replace(/_/g," ")}</td>
-                      <td style={{ ...tdStyle,fontWeight:800,color:getHeatColor(r.convexity_score) }}>{r.convexity_score}</td>
-                      <td style={tdStyle}><Badge text={r.governor_status} color={govClr} /></td>
-                      <td style={{ ...tdStyle,color:pnlClr,fontWeight:700 }}>{(r.current_pnl||0)>=0?"+":""}${(r.current_pnl||0).toLocaleString()}</td>
-                      <td style={{ ...tdStyle,color:pnlClr }}>{(r.current_pnl_pct||0)>0?"+":""}{r.current_pnl_pct||0}%</td>
-                      <td style={{ ...tdStyle }} onClick={e => e.stopPropagation()}>
-                        <div style={{ display:"flex",gap:4 }}>
-                          <button style={btnStyle(COLORS.blue)} onClick={() => handleAction(r.ticker,"roll")}>ROLL</button>
-                          <button style={btnStyle(COLORS.amber)} onClick={() => handleAction(r.ticker,"trim")}>TRIM</button>
-                          <button style={btnStyle(COLORS.greenDim)} onClick={() => handleAction(r.ticker,"add")}>ADD</button>
-                          <button style={btnStyle(COLORS.redDim)} onClick={() => handleAction(r.ticker,"close")}>CLOSE</button>
+                    <div key={p.id} style={{
+                      padding: '12px 14px', borderRadius: 8,
+                      background: 'rgba(15,20,30,0.6)', border: '1px solid #1e293b'
+                    }}>
+                      {/* Card header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            ...mono, fontSize: 11, fontWeight: 700,
+                            background: '#92400e', color: '#fbbf24', padding: '1px 8px', borderRadius: 4
+                          }}>{p.ticker}</span>
+                          <span style={{ ...mono, fontSize: 10, color: '#94a3b8' }}>
+                            {(p.structure_type || '\u2014').replace(/_/g, ' ')}
+                          </span>
+                          {layer && (
+                            <span style={{
+                              ...mono, fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 999,
+                              background: 'rgba(91,138,245,0.12)', color: '#5b8af5', letterSpacing: 0.5
+                            }}>{layer}</span>
+                          )}
                         </div>
-                      </td>
-                    </tr>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{
+                            ...mono, fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 999,
+                            background: 'rgba(245,158,11,0.12)', color: '#f59e0b', letterSpacing: 0.5
+                          }}>{p._role}</span>
+                          <span style={{
+                            width: 7, height: 7, borderRadius: '50%',
+                            background: p.is_active ? '#22c55e' : '#ef4444',
+                            boxShadow: p.is_active ? '0 0 4px rgba(34,197,94,0.4)' : 'none'
+                          }} />
+                        </div>
+                      </div>
+
+                      {/* Legs */}
+                      {legs.length > 0 && (
+                        <div style={{ marginBottom: 6 }}>
+                          {legs.map((l, i) => {
+                            const dte = l.expiry ? Math.max(0, Math.round((new Date(l.expiry) - now) / 86400000)) : null;
+                            const dteColor = dte !== null ? (dte <= 7 ? '#ef4444' : dte <= 14 ? '#f59e0b' : '#94a3b8') : '#5a5e72';
+                            return (
+                              <div key={l.id || i} style={{
+                                display: 'flex', gap: 10, alignItems: 'center', padding: '3px 0',
+                                borderBottom: i < legs.length - 1 ? '1px solid rgba(30,41,59,0.3)' : 'none'
+                              }}>
+                                <span style={{ ...mono, fontSize: 10, fontWeight: 700, color: legColor(l.leg_type), minWidth: 80 }}>
+                                  {(l.leg_type || '\u2014').replace(/_/g, ' ')}
+                                </span>
+                                <span style={{ ...mono, fontSize: 10, color: '#e2e8f0', minWidth: 50 }}>
+                                  {l.strike ? '$' + Number(l.strike).toFixed(0) : '\u2014'}
+                                </span>
+                                <span style={{ ...mono, fontSize: 10, color: '#94a3b8', minWidth: 80 }}>
+                                  {l.expiry || '\u2014'}
+                                </span>
+                                {dte !== null && (
+                                  <span style={{ ...mono, fontSize: 9, fontWeight: 700, color: dteColor }}>
+                                    DTE:{dte}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {legs.length === 0 && (
+                        <div style={{ ...mono, fontSize: 10, color: '#5a5e72', marginBottom: 6 }}>No legs data</div>
+                      )}
+
+                      {/* Thesis from scenario_synthesis */}
+                      {sc && (
+                        <div style={{ ...mono, fontSize: 10, color: biasColor(sc.overall_bias) }}>
+                          {sc.overall_bias} {'\u00B7'} {({
+                            'CONTINUATION_DOWN': 'Down continuation',
+                            'BULLISH_CONTINUATION': 'Bullish continuation',
+                            'CHOP_CONSOLIDATION': 'Chop / consolidation',
+                            'SHARP_REVERSAL': 'Sharp reversal',
+                            'SHARP_REVERSAL_DOWN': 'Sharp reversal down',
+                            'BULLISH_REVERSAL': 'Bullish reversal',
+                          }[sc.primary_scenario] || sc.primary_scenario)} {Math.round((sc.primary_probability || 0) * 100)}%
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1834,177 +2004,209 @@ function ProbabilityCard({ data, compact }) {
   );
 }
 
-// ── RegimeProbabilityTab ──
+// ── RegimeProbabilityTab — wired to scenario_synthesis + briefing_reports ──
 function RegimeProbabilityTab() {
-  const [selected, setSelected] = useState("SPY");
-  const [compareMode, setCompareMode] = useState(false);
-  const [compareTicker, setCompareTicker] = useState("SLV");
-  const [dataMap, setDataMap] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [source, setSource] = useState("placeholder");
+  const [scenarios, setScenarios] = React.useState({});
+  const [briefings, setBriefings] = React.useState({});
+  const [loading, setLoading] = React.useState(true);
+  const [lastRunTs, setLastRunTs] = React.useState(null);
+  const TICKERS = ['SLV','GLD','GDX','SILJ','SIL'];
 
-  useEffect(() => {
-    async function load() {
+  React.useEffect(() => {
+    const load = async () => {
       setLoading(true);
-      const result = {};
-      try {
-        const sbUrl = DATA_SB_URL;
-        const sbKey = DATA_SB_KEY;
-        if (sbUrl && sbKey) {
-          console.log("[MONOS_UI FETCH]", "Regime Probability", "regime_probabilities", "[DATA_SUPABASE]");
-          let allLive = true;
-          for (const t of REGIME_PROB_WATCHLIST) {
-            const resp = await fetch(
-              `${sbUrl}/rest/v1/regime_probabilities?ticker=eq.${t}&order=as_of_ts.desc&limit=1`,
-              { headers: { apikey: sbKey, Authorization: "Bearer " + sbKey, "Accept": "application/json" } }
-            );
-            if (resp.ok) {
-              const rows = await resp.json();
-              if (rows && rows.length > 0) { result[t] = rows[0]; continue; }
-            }
-            allLive = false;
-            result[t] = generateRegimeProbMock(t);
-          }
-          if (allLive) { setSource("supabase"); }
-          else { setSource("mixed"); }
-          setDataMap(result);
-          setLoading(false);
-          return;
-        }
-      } catch (e) { console.warn("[MONOS] Regime probability fetch failed:", e); }
-      REGIME_PROB_WATCHLIST.forEach(t => { result[t] = generateRegimeProbMock(t); });
-      setDataMap(result);
-      setSource("placeholder");
+      const sb = getDataSupabase();
+      if (!sb) { setLoading(false); return; }
+      const { data: sc } = await sb
+        .from('scenario_synthesis')
+        .select('*')
+        .order('run_ts', { ascending: false })
+        .limit(20);
+      const { data: br } = await sb
+        .from('briefing_reports')
+        .select('ticker, regime_label, conviction_score, summary, created_at')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      const scMap = {};
+      (sc || []).forEach(r => { if (!scMap[r.ticker]) scMap[r.ticker] = r; });
+      const brMap = {};
+      (br || []).forEach(r => { if (!brMap[r.ticker]) brMap[r.ticker] = r; });
+      if (sc && sc.length > 0) setLastRunTs(sc[0].run_ts);
+      setScenarios(scMap);
+      setBriefings(brMap);
       setLoading(false);
-    }
+    };
     load();
   }, []);
 
-  const srcBadge = source === "supabase"
-    ? { bg: "#166534", color: "#4ade80", border: "#4ade8044", label: "● LIVE" }
-    : source === "mixed"
-    ? { bg: "#4a3728", color: "#fbbf24", border: "#fbbf2444", label: "◐ MIXED" }
-    : { bg: "#78350f", color: "#fbbf24", border: "#fbbf2444", label: "◌ PLACEHOLDER" };
+  const mono = { fontFamily: "'JetBrains Mono', monospace" };
+  const biasColor = b => b === 'BULLISH' ? '#22c55e' : b === 'BEARISH' ? '#ef4444' : '#5a5e72';
+  const biasBg = b => b === 'BULLISH' ? 'rgba(34,197,94,0.10)' : b === 'BEARISH' ? 'rgba(239,68,68,0.10)' : 'rgba(90,94,114,0.10)';
+  const shortScen = s => ({
+    'CONTINUATION_DOWN': 'Down continuation',
+    'BULLISH_CONTINUATION': 'Bullish continuation',
+    'CHOP_CONSOLIDATION': 'Chop / consolidation',
+    'SHARP_REVERSAL': 'Sharp reversal',
+    'SHARP_REVERSAL_DOWN': 'Sharp reversal down',
+    'BULLISH_REVERSAL': 'Bullish reversal',
+  }[s] || (s || '--').replace(/_/g, ' '));
+
+  const hasData = Object.keys(scenarios).length > 0 || Object.keys(briefings).length > 0;
+
+  const sigBadge = (label, val) => {
+    if (val === null || val === undefined) return null;
+    const col = val > 0 ? '#22c55e' : val < 0 ? '#ef4444' : '#5a5e72';
+    const suffix = val > 0 ? '+' : val < 0 ? '-' : '';
+    return (
+      <span style={{
+        ...mono, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 999,
+        background: col + '18', color: col, letterSpacing: 0.3
+      }}>{label}{suffix}</span>
+    );
+  };
 
   return (
     <div>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Lbl>Regime Probability — Market Path Analysis</Lbl>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div>
+          <div style={{ ...mono, fontSize: 11, fontWeight: 700, letterSpacing: 2, color: '#f59e0b', textTransform: 'uppercase', marginBottom: 2 }}>
+            REGIME PROBABILITY
+          </div>
+          <div style={{ fontSize: 11, color: '#5a5e72' }}>
+            Scenario synthesis + briefing regime overlay
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
-            fontFamily: "'JetBrains Mono', monospace", fontSize: 8, padding: "2px 8px", borderRadius: 999,
-            background: srcBadge.bg, color: srcBadge.color, border: `1px solid ${srcBadge.border}`,
-          }}>{srcBadge.label}</span>
-          <button
-            onClick={() => setCompareMode(!compareMode)}
-            style={{
-              fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600,
-              padding: "4px 10px", borderRadius: 4, cursor: "pointer",
-              background: compareMode ? "rgba(167,139,250,0.15)" : "rgba(255,255,255,0.04)",
-              border: `1px solid ${compareMode ? "#a78bfa44" : COLORS.border}`,
-              color: compareMode ? COLORS.violet : COLORS.textDim,
-            }}
-          >{compareMode ? "✕ EXIT COMPARE" : "⇄ COMPARE"}</button>
+            width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
+            background: hasData ? '#22c55e' : '#6b7280',
+            boxShadow: hasData ? '0 0 5px rgba(34,197,94,0.5)' : 'none'
+          }} />
+          <span style={{ ...mono, fontSize: 10, color: hasData ? '#86efac' : '#6b7280' }}>
+            {hasData ? 'Live' : 'No data'}
+            {lastRunTs ? ' \u00B7 ' + new Date(lastRunTs).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+          </span>
         </div>
       </div>
 
-      {/* Ticker Selector */}
-      <Card style={{ padding: "10px 14px", marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: COLORS.textDim, letterSpacing: 1 }}>WATCHLIST:</span>
-          {REGIME_PROB_WATCHLIST.map(t => {
-            const isSelected = t === selected;
-            const stateColor = dataMap[t] ? (REGIME_STATE_COLORS[dataMap[t].primary_regime_state] || REGIME_STATE_COLORS.TRANSITION).text : COLORS.textDim;
-            return (
-              <button key={t} onClick={() => setSelected(t)} style={{
-                fontFamily: "'JetBrains Mono', monospace", fontSize: 11, fontWeight: 700,
-                padding: "6px 14px", borderRadius: 4, cursor: "pointer",
-                background: isSelected ? "rgba(91,138,245,0.12)" : "rgba(255,255,255,0.03)",
-                border: `1px solid ${isSelected ? "#5b8af544" : COLORS.border}`,
-                color: isSelected ? COLORS.accent : COLORS.text,
-                transition: "all 0.15s", position: "relative",
-              }}>
-                {t}
-                <div style={{
-                  position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)",
-                  width: 6, height: 6, borderRadius: "50%", background: stateColor, opacity: 0.7,
-                }} />
-              </button>
-            );
-          })}
-          {compareMode && (
-            <>
-              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: COLORS.violet, letterSpacing: 1, marginLeft: 8 }}>VS:</span>
-              {REGIME_PROB_WATCHLIST.filter(t => t !== selected).map(t => (
-                <button key={t} onClick={() => setCompareTicker(t)} style={{
-                  fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 600,
-                  padding: "4px 10px", borderRadius: 4, cursor: "pointer",
-                  background: t === compareTicker ? "rgba(167,139,250,0.12)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${t === compareTicker ? "#a78bfa44" : COLORS.border}`,
-                  color: t === compareTicker ? COLORS.violet : COLORS.textDim,
-                }}>{t}</button>
-              ))}
-            </>
-          )}
-        </div>
-      </Card>
-
-      {/* Content */}
       {loading ? (
-        <Card style={{ textAlign: "center", padding: 60 }}>
-          <Mono s={12} c={COLORS.textDim}>Loading regime probabilities...</Mono>
-        </Card>
-      ) : compareMode ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <ProbabilityCard data={dataMap[selected]} compact />
-          <ProbabilityCard data={dataMap[compareTicker]} compact />
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <span style={{ ...mono, fontSize: 11, color: COLORS.textDim }}>Loading regime data...</span>
+        </div>
+      ) : !hasData ? (
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <span style={{ ...mono, fontSize: 11, color: '#5a5e72' }}>Awaiting data</span>
         </div>
       ) : (
-        <ProbabilityCard data={dataMap[selected]} />
-      )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
+          {TICKERS.map(ticker => {
+            const sc = scenarios[ticker];
+            const br = briefings[ticker];
+            if (!sc && !br) return (
+              <div key={ticker} style={{
+                padding: '16px 18px', borderRadius: 8,
+                background: 'rgba(15,20,30,0.6)', border: '1px solid #1e293b'
+              }}>
+                <span style={{
+                  ...mono, fontSize: 11, fontWeight: 700,
+                  background: '#92400e', color: '#fbbf24', padding: '1px 8px', borderRadius: 4
+                }}>{ticker}</span>
+                <span style={{ ...mono, fontSize: 11, color: '#5a5e72', marginLeft: 10 }}>Awaiting data</span>
+              </div>
+            );
 
-      {/* Mini overview — all tickers at a glance */}
-      {!loading && !compareMode && (
-        <div style={{ marginTop: 16 }}>
-          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: COLORS.textDim, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>ALL TICKERS — QUICK VIEW</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
-            {REGIME_PROB_WATCHLIST.map(t => {
-              const d = dataMap[t];
-              if (!d) return null;
-              const s = REGIME_STATE_COLORS[d.primary_regime_state] || REGIME_STATE_COLORS.TRANSITION;
-              return (
-                <div key={t} onClick={() => setSelected(t)} style={{
-                  background: t === selected ? "rgba(91,138,245,0.06)" : COLORS.bgCard,
-                  border: `1px solid ${t === selected ? "#5b8af533" : COLORS.border}`,
-                  borderRadius: 8, padding: "10px 14px", cursor: "pointer", transition: "all 0.15s",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 700, color: COLORS.text }}>{t}</span>
+            const bc = sc ? biasColor(sc.overall_bias) : '#5a5e72';
+            const engSigs = sc ? (typeof sc.engine_signals === 'string' ? JSON.parse(sc.engine_signals) : sc.engine_signals) || {} : {};
+
+            return (
+              <div key={ticker} style={{
+                padding: '14px 16px', borderRadius: 8,
+                background: 'rgba(15,20,30,0.6)',
+                border: `1px solid ${bc}44`
+              }}>
+                {/* Card header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <span style={{
+                    ...mono, fontSize: 11, fontWeight: 700,
+                    background: '#92400e', color: '#fbbf24', padding: '1px 8px', borderRadius: 4
+                  }}>{ticker}</span>
+                  {sc && (
                     <span style={{
-                      fontFamily: "'JetBrains Mono', monospace", fontSize: 7, fontWeight: 600,
-                      padding: "2px 8px", borderRadius: 999,
-                      background: s.bg, border: `1px solid ${s.border}`, color: s.text,
-                    }}>{d.primary_regime_state.replace(/_/g, " ")}</span>
-                  </div>
-                  {/* Mini bars */}
-                  <div style={{ display: "flex", gap: 3, height: 4, borderRadius: 2, overflow: "hidden" }}>
-                    {REGIME_PROB_BARS.slice(0, 3).map(bar => (
-                      <div key={bar.key} style={{
-                        flex: d[bar.key] || 1, background: bar.color, opacity: 0.7,
-                        transition: "flex 0.4s ease",
-                      }} />
+                      ...mono, fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
+                      background: biasBg(sc.overall_bias), color: bc
+                    }}>{sc.overall_bias}</span>
+                  )}
+                  {br && br.regime_label && (
+                    <span style={{ ...mono, fontSize: 9, color: '#94a3b8' }}>
+                      {br.regime_label}
+                    </span>
+                  )}
+                </div>
+
+                {/* Scenario bars */}
+                {sc && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                    {[
+                      { label: shortScen(sc.primary_scenario), pct: sc.primary_probability, color: bc },
+                      { label: shortScen(sc.alt_scenario), pct: sc.alt_probability, color: '#5a5e72' },
+                      { label: shortScen(sc.low_prob_scenario), pct: sc.low_prob_probability, color: '#3b82f6' },
+                    ].map((bar, i) => (
+                      <div key={i}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                          <span style={{ ...mono, fontSize: 10, color: i === 0 ? bar.color : '#94a3b8' }}>{bar.label}</span>
+                          <span style={{ ...mono, fontSize: 10, fontWeight: 700, color: i === 0 ? bar.color : '#94a3b8' }}>
+                            {Math.round((bar.pct || 0) * 100)}%
+                          </span>
+                        </div>
+                        <div style={{ height: 6, borderRadius: 3, background: '#1e293b', overflow: 'hidden' }}>
+                          <div style={{
+                            width: Math.round((bar.pct || 0) * 100) + '%',
+                            height: '100%', borderRadius: 3, background: bar.color,
+                            opacity: i === 0 ? 1 : 0.5,
+                            transition: 'width 0.3s'
+                          }} />
+                        </div>
+                      </div>
                     ))}
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 7, color: COLORS.green }}>{d.bullish_continuation}% bull</span>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 7, color: COLORS.amber }}>{d.corrective_pullback}% pull</span>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 7, color: COLORS.red }}>{d.deeper_breakdown}% brkd</span>
+                )}
+
+                {/* Engine signals row */}
+                {sc && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 8 }}>
+                    {sigBadge('GEX', engSigs.gex)}
+                    {sigBadge('DM', engSigs.demark)}
+                    {sigBadge('RL', engSigs.reload)}
+                    {sigBadge('RG', engSigs.regime)}
+                    {sigBadge('EW', engSigs.ew)}
+                    <span style={{ ...mono, fontSize: 9, color: '#5a5e72', marginLeft: 4 }}>
+                      Score: {engSigs.raw_score ?? '--'}
+                    </span>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                )}
+
+                {/* Briefing summary */}
+                {br && br.summary && (
+                  <div style={{
+                    ...mono, fontSize: 10, color: '#94a3b8', lineHeight: 1.5,
+                    marginBottom: 4,
+                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden', textOverflow: 'ellipsis'
+                  }}>
+                    {br.summary}
+                  </div>
+                )}
+                {br && br.conviction_score != null && (
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ ...mono, fontSize: 9, color: '#5a5e72' }}>
+                      Conviction: {br.conviction_score}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
