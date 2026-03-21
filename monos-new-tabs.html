@@ -924,7 +924,7 @@ function generateScannerMock() {
   }).sort((a,b) => b.opportunity_score - a.opportunity_score);
 }
 
-function OpportunityScanner() {
+function OpportunityScanner({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [drawerTicker, setDrawerTicker] = useState(null);
@@ -947,7 +947,33 @@ function OpportunityScanner() {
     load();
   }, []);
 
+  /* ── selectedTicker filtering ── */
+  const displayRows = selectedTicker
+    ? rows.filter(r => r.ticker === selectedTicker)
+    : rows;
+
   const drawerData = drawerTicker ? rows.find(r => r.ticker === drawerTicker) : null;
+
+  /* ── engineData enrichment helpers ── */
+  const getBias = (ticker) => {
+    const sc = engineData?.scenario?.[ticker];
+    if (!sc) return null;
+    const bias = sc.primary_bias || sc.bias;
+    return bias ? bias.replace(/_/g, " ") : null;
+  };
+  const getVolLabel = (ticker) => {
+    const gex = engineData?.gex?.[ticker];
+    if (!gex) return null;
+    return gex.gex_regime || gex.gamma_state || null;
+  };
+
+  /* ── VIX banner ── */
+  const vd = engineData?.vix;
+  const vixRegimeColor = !vd ? COLORS.textDim
+    : vd.vol_regime_state === "CRISIS_WATCH" ? COLORS.redDim
+    : vd.vol_regime_state === "ELEVATED_CAUTION" ? COLORS.orange
+    : vd.vol_regime_state === "CALM_EXPANSIONARY" ? COLORS.greenDim
+    : COLORS.textDim;
 
   const thClr = COLORS.textDim;
   const thStyle = { fontSize:9,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:thClr,padding:"8px 10px",borderBottom:`1px solid ${COLORS.border}`,textAlign:"left" };
@@ -956,25 +982,65 @@ function OpportunityScanner() {
   return (
     <div>
       {drawerTicker && <ConvexDrawer ticker={drawerTicker} data={drawerData} onClose={() => setDrawerTicker(null)} />}
-      <Lbl>Opportunity Scanner — Ranked Candidates</Lbl>
+
+      {/* ── VIX regime banner ── */}
+      {vd && (
+        <div style={{ display:"flex",alignItems:"center",gap:10,padding:"6px 12px",marginBottom:8,borderRadius:4,background:`${vixRegimeColor}10`,border:`1px solid ${vixRegimeColor}30` }}>
+          <span style={{ fontSize:9,fontWeight:700,letterSpacing:1,color:vixRegimeColor }}>VIX {vd.vix != null ? Number(vd.vix).toFixed(1) : "--"}</span>
+          <span style={{ fontSize:9,color:COLORS.textDim }}>|</span>
+          <span style={{ fontSize:9,fontWeight:600,color:vixRegimeColor }}>{(vd.vol_regime_state || "").replace(/_/g, " ")}</span>
+          {vd.confidence_modifier != null && vd.confidence_modifier !== 0 && (
+            <span style={{ fontSize:9,color:COLORS.textDim,marginLeft:"auto" }}>Conf adj: {Number(vd.confidence_modifier) > 0 ? "+" : ""}{Number(vd.confidence_modifier).toFixed(2)}</span>
+          )}
+        </div>
+      )}
+
+      <Lbl>Opportunity Scanner — Ranked Candidates{selectedTicker ? ` (${selectedTicker})` : ""}</Lbl>
+
+      {/* ── Filter strip ── */}
+      {selectedTicker && (
+        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:8 }}>
+          <span style={{ fontSize:10,color:COLORS.textDim }}>Filtered to:</span>
+          <span style={{ fontSize:11,fontWeight:700,color:COLORS.amber }}>{selectedTicker}</span>
+          <span onClick={() => setSelectedTicker && setSelectedTicker(null)}
+            style={{ fontSize:9,color:COLORS.accent,cursor:"pointer",marginLeft:4,textDecoration:"underline" }}>Show all</span>
+        </div>
+      )}
+
       {loading ? <Card style={{ textAlign:"center",padding:40 }}><Mono s={14} c={COLORS.textDim}>Loading scanner...</Mono></Card> : (
         <Card style={{ padding:0,overflow:"hidden" }}>
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead><tr>
-                <th style={thStyle}>#</th><th style={thStyle}>TICKER</th><th style={thStyle}>OPP SCORE</th><th style={thStyle}>STRUCTURE</th><th style={thStyle}>GEX</th><th style={thStyle}>VOL REGIME</th><th style={thStyle}>THESIS</th><th style={thStyle}>GOV</th>
+                <th style={thStyle}>#</th><th style={thStyle}>TICKER</th><th style={thStyle}>BIAS</th><th style={thStyle}>OPP SCORE</th><th style={thStyle}>STRUCTURE</th><th style={thStyle}>GEX</th><th style={thStyle}>VOL</th><th style={thStyle}>VOL REGIME</th><th style={thStyle}>THESIS</th><th style={thStyle}>GOV</th>
               </tr></thead>
               <tbody>
-                {rows.map((r,i) => {
+                {displayRows.map((r,i) => {
                   const govC = r.governor_status==="APPROVED"?COLORS.greenDim:r.governor_status==="CONDITIONAL"?COLORS.amber:r.governor_status==="BLOCKED"?COLORS.redDim:COLORS.textDim;
+                  const isSelected = selectedTicker && r.ticker === selectedTicker;
+                  const bias = getBias(r.ticker);
+                  const biasColor = bias && bias.includes("BULL") ? COLORS.greenDim : bias && bias.includes("BEAR") ? COLORS.redDim : COLORS.textDim;
+                  const volLabel = getVolLabel(r.ticker);
+                  const volColor = volLabel === "NEGATIVE" ? COLORS.greenDim : volLabel === "POSITIVE" ? COLORS.redDim : COLORS.textDim;
                   return (
-                    <tr key={r.ticker} onClick={() => setDrawerTicker(r.ticker)} style={{ cursor:"pointer",transition:"background 0.15s" }}
-                      onMouseEnter={e => e.currentTarget.style.background=COLORS.bgHover} onMouseLeave={e => e.currentTarget.style.background="transparent"}>
+                    <tr key={r.ticker}
+                      onClick={() => setDrawerTicker(r.ticker)}
+                      style={{
+                        cursor:"pointer",
+                        transition:"background 0.15s",
+                        background: isSelected ? `${COLORS.amber}12` : "transparent",
+                        borderLeft: isSelected ? `3px solid ${COLORS.amber}` : "3px solid transparent"
+                      }}
+                      onMouseEnter={e => { if(!isSelected) e.currentTarget.style.background=COLORS.bgHover; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = isSelected ? `${COLORS.amber}12` : "transparent"; }}>
                       <td style={{ ...tdStyle,color:COLORS.textDim,width:30 }}>{i+1}</td>
-                      <td style={{ ...tdStyle,fontWeight:700,color:COLORS.text }}>{r.ticker}</td>
+                      <td style={{ ...tdStyle,fontWeight:700,color: isSelected ? COLORS.amber : COLORS.text,cursor:"pointer" }}
+                        onClick={(e) => { e.stopPropagation(); setSelectedTicker && setSelectedTicker(r.ticker === selectedTicker ? null : r.ticker); }}>{r.ticker}</td>
+                      <td style={{ ...tdStyle,fontSize:10,fontWeight:700,color:biasColor }}>{bias || "—"}</td>
                       <td style={{ ...tdStyle,fontWeight:800,color:getHeatColor(r.opportunity_score) }}>{r.opportunity_score}</td>
                       <td style={{ ...tdStyle,fontSize:10,color:COLORS.accent }}>{(r.recommended_structure||"—").replace(/_/g," ")}</td>
                       <td style={tdStyle}><Badge text={r.gamma_state||"—"} color={r.gamma_state==="NEGATIVE"?COLORS.greenDim:r.gamma_state==="POSITIVE"?COLORS.redDim:COLORS.textDim} /></td>
+                      <td style={{ ...tdStyle,fontSize:10,fontWeight:600,color:volColor }}>{volLabel ? volLabel.replace(/_/g," ") : "—"}</td>
                       <td style={tdStyle}><Badge text={r.vol_regime||"—"} color={r.vol_regime==="COMPRESSED"?COLORS.blue:r.vol_regime==="EXPANDED"?COLORS.orange:COLORS.textDim} /></td>
                       <td style={{ ...tdStyle,fontSize:10,color:r.thesis_health?.includes("STRONG")?COLORS.greenDim:r.thesis_health?.includes("MODERATE")?COLORS.amber:COLORS.redDim }}>{(r.thesis_health||"—").replace(/_/g," ")}</td>
                       <td style={tdStyle}><span style={{ fontSize:8,fontWeight:700,padding:"2px 7px",borderRadius:3,background:`${govC}15`,color:govC }}>{r.governor_status}</span></td>

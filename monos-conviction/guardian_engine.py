@@ -332,81 +332,110 @@ def main():
     # Step 1 — Ensure output table
     table_exists = ensure_table()
 
-    # Step 2 — Fetch positions
+    # Step 2 — Fetch all active positions once
     print("\n[guardian] Fetching open positions...")
-    positions = fetch_positions()
+    positions_result = sb.table('positions') \
+        .select('id, ticker') \
+        .eq('is_active', True) \
+        .execute()
+    positions = positions_result.data or []
+    print(f"[guardian] Found {len(positions)} active positions")
 
     if not positions:
         print("\nNo open positions found. Nothing to evaluate.")
         print("=" * 60)
         return
 
-    print(f"[guardian] Found {len(positions)} active positions")
-
-    # Step 3 — Evaluate
-    all_evaluations = []
-    total_legs = 0
+    # Step 3 — Evaluate each position's legs (one query per position)
+    all_rows = []
+    legs_evaluated = 0
     high_alerts = []
     hold_rows = []
-    total_written = 0
 
-    for pos in positions:
-        legs = pos.get("legs", [])
+    for position in positions:
+        pos_id = position['id']
+        ticker = position.get('ticker', 'UNKNOWN')
+
+        # Fetch legs for THIS position only
+        legs_result = sb.table('position_legs') \
+            .select('*') \
+            .eq('position_id', pos_id) \
+            .execute()
+        legs = legs_result.data or []
+
         if not legs:
             continue
 
-        # Deduplicate legs by id to avoid double-counting from ticker matching
-        seen_ids = set()
-        unique_legs = []
-        for l in legs:
-            lid = l.get("id", id(l))
-            if lid not in seen_ids:
-                seen_ids.add(lid)
-                unique_legs.append(l)
+        # Delete today's existing rows for this position
+        if not DRY_RUN and table_exists:
+            sb.table('guardian_position_state') \
+                .delete() \
+                .eq('position_id', pos_id) \
+                .execute()
 
-        pos_evaluations = []
-        for leg in unique_legs:
-            total_legs += 1
-            action, urgency, reason = evaluate_leg(leg)
+        for leg in legs:
+            legs_evaluated += 1
 
-            expiry_str = leg.get("expiry") or leg.get("expiration")
+            expiry_str = str(leg.get('expiration') or leg.get('expiry') or '')
             try:
-                dte = (date.fromisoformat(str(expiry_str)[:10]) - TODAY).days
-            except (ValueError, TypeError):
-                dte = None
+                dte = (date.fromisoformat(expiry_str[:10]) - date.today()).days
+            except Exception:
+                dte = 999
 
-            evaluation = {
-                "leg_id": leg.get("id", "unknown"),
-                "ticker": leg.get("ticker") or pos.get("ticker", "?"),
-                "leg_type": leg.get("leg_type", "?"),
-                "strike": leg.get("strike"),
-                "expiry": str(expiry_str)[:10] if expiry_str else None,
-                "dte": dte,
-                "is_hedge": leg.get("is_hedge", False),
-                "action": action,
-                "urgency": urgency,
-                "reason": reason,
-                "guardian_state": None,  # set below
-            }
-            pos_evaluations.append(evaluation)
+            is_hedge = leg.get('is_hedge', False)
 
-        # Compute position-level guardian state
-        guardian_state = compute_guardian_state(pos_evaluations)
-        for e in pos_evaluations:
-            e["guardian_state"] = guardian_state
-
-        # Collect for summary
-        for e in pos_evaluations:
-            if e["urgency"] == "HIGH":
-                high_alerts.append(e)
+            if is_hedge and dte <= 14:
+                action = 'CLOSE_BEFORE_DECAY'
+                urgency = 'HIGH'
+                reason = (f'DTE {dte} <= 14 -- '
+                         f'review hedge before decay accelerates')
+                guardian_state = 'ACTIVE_PROTECTION_ALERT'
+            elif is_hedge:
+                action = 'HOLD'
+                urgency = None
+                reason = 'Impulse down active -- let hedge work'
+                guardian_state = 'ACTIVE_PROTECTION'
             else:
-                hold_rows.append(e)
+                action = 'HOLD'
+                urgency = None
+                reason = ('Core position -- '
+                         'hold unless invalidation triggered')
+                guardian_state = 'ACTIVE_PROTECTION'
 
-        all_evaluations.extend(pos_evaluations)
+            row = {
+                'position_id': pos_id,
+                'leg_id': leg['id'],
+                'ticker': ticker,
+                'leg_type': leg.get('leg_type'),
+                'strike': leg.get('strike'),
+                'expiry': expiry_str[:10] if expiry_str else None,
+                'days_to_expiry': dte,
+                'is_hedge': is_hedge,
+                'action': action,
+                'urgency': urgency,
+                'reason': reason,
+                'guardian_state': guardian_state,
+                't0_acknowledged': False,
+                'action_logged': False,
+            }
+            all_rows.append(row)
 
-        # Step 4 — Write
-        written = write_results(pos, pos_evaluations, table_exists)
-        total_written += written
+            # Collect for summary
+            if urgency == 'HIGH':
+                high_alerts.append(row)
+            else:
+                hold_rows.append(row)
+
+    # Step 4 — Bulk insert all rows at once
+    total_written = 0
+    if all_rows and not DRY_RUN and table_exists:
+        sb.table('guardian_position_state') \
+            .insert(all_rows) \
+            .execute()
+        total_written = len(all_rows)
+
+    print(f"[guardian] Legs evaluated: {legs_evaluated}")
+    print(f"[guardian] Wrote {total_written} rows")
 
     # -- Step 5 — Print Summary ------------------------------
     print()
@@ -414,7 +443,7 @@ def main():
     print("GUARDIAN ENGINE — RUN COMPLETE")
     print("=" * 60)
     print(f"Positions evaluated:  {len(positions)}")
-    print(f"Legs evaluated:       {total_legs}")
+    print(f"Legs evaluated:       {legs_evaluated}")
     print(f"HIGH urgency alerts:  {len(high_alerts)}")
     print()
 
@@ -422,9 +451,9 @@ def main():
         print("--- HIGH URGENCY --------------------------------------")
         for e in high_alerts:
             print(
-                f"  [!] {e['ticker']:5s} | {e['leg_type']:12s} | "
-                f"Strike {e['strike'] or '—':>6} | Exp {e['expiry'] or '—'} | "
-                f"DTE {e['dte'] or '?':>3} | {e['action']}"
+                f"  [!] {e['ticker']:5s} | {e.get('leg_type','?'):12s} | "
+                f"Strike {e.get('strike') or '--':>6} | Exp {e.get('expiry') or '--'} | "
+                f"DTE {e.get('days_to_expiry') or '?':>3} | {e['action']}"
             )
         print()
 
@@ -432,9 +461,9 @@ def main():
         print("--- HOLD ----------------------------------------------")
         for e in hold_rows:
             print(
-                f"  [OK] {e['ticker']:5s} | {e['leg_type']:12s} | "
-                f"Strike {e['strike'] or '—':>6} | Exp {e['expiry'] or '—'} | "
-                f"DTE {e['dte'] or '?':>3} | {e['action']}"
+                f"  [OK] {e['ticker']:5s} | {e.get('leg_type','?'):12s} | "
+                f"Strike {e.get('strike') or '--':>6} | Exp {e.get('expiry') or '--'} | "
+                f"DTE {e.get('days_to_expiry') or '?':>3} | {e['action']}"
             )
         print()
 
