@@ -8,6 +8,7 @@ python reload_engine.py >> nightly_log.txt 2>&1
 python gex_engine.py >> nightly_log.txt 2>&1
 python demark_engine.py >> nightly_log.txt 2>&1
 python fib_engine.py >> nightly_log.txt 2>&1
+python vix_regime_engine.py >> nightly_log.txt 2>&1
 python scenario_synthesis_engine.py >> nightly_log.txt 2>&1
 python scanner_engine.py >> nightly_log.txt 2>&1
 echo [%date% %time%] Pipeline complete >> nightly_log.txt

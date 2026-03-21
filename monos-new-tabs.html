@@ -1238,6 +1238,7 @@ function ConvexScenarioSurface({ selectedTicker, setSelectedTicker, engineData, 
   const gex = engineData?.gex?.[ticker];
   const dm = engineData?.demark?.[ticker];
   const fib = engineData?.fib?.[ticker];
+  const vix = engineData?.vix;
 
   useEffect(() => {
     async function load() {
@@ -1286,16 +1287,27 @@ function ConvexScenarioSurface({ selectedTicker, setSelectedTicker, engineData, 
 
   return (
     <div>
-      {/* Live engine data strip */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8, flexWrap:'wrap' }}>
-        <span style={{ background:'#f59e0b', color:'#000', fontWeight:700, fontSize:11, padding:'2px 8px', borderRadius:4, fontFamily:"'JetBrains Mono',monospace" }}>{ticker}</span>
-        {sc && <span style={{ background: sc.overall_bias==='BULLISH'?'#16a34a22':sc.overall_bias==='BEARISH'?'#dc262622':'#ffffff11', color: sc.overall_bias==='BULLISH'?COLORS.greenDim:sc.overall_bias==='BEARISH'?COLORS.redDim:COLORS.textDim, fontSize:10, padding:'2px 8px', borderRadius:4, fontWeight:600, fontFamily:"'JetBrains Mono',monospace" }}>{sc.overall_bias || 'NEUTRAL'}{sc.primary_probability ? ' '+Math.round(sc.primary_probability*100)+'%' : ''}</span>}
-        {gex && <Mono s={10} c={COLORS.textDim}>GEX: <span style={{ color: (gex.gex_regime||'').toUpperCase()==='NEGATIVE'?COLORS.redDim:(gex.gex_regime||'').toUpperCase()==='POSITIVE'?COLORS.greenDim:COLORS.textDim }}>{(gex.gex_regime||'--').toUpperCase()}</span>{gex.gamma_flip ? ' \u00b7 Flip $'+Number(gex.gamma_flip).toFixed(2) : ''}</Mono>}
-        {dm && <Mono s={10} c={COLORS.textDim}>DeMark: {(dm.setup_direction||'--')} {dm.setup_count||0}/9</Mono>}
-        {fib && <Mono s={10} c={COLORS.textDim}>61.8%: ${fib.r_618 ? Number(fib.r_618).toFixed(2) : '--'}{fib.nearest_level ? ' \u00b7 Nearest: '+fib.nearest_level : ''}</Mono>}
-        <span style={{ marginLeft:'auto', fontSize:8, color: sc?'#16a34a':COLORS.textDim, fontFamily:"'JetBrains Mono',monospace" }}>{sc ? '\u25cf LIVE' : '\u25cb NO DATA'}</span>
+      {/* Live engine data panel */}
+      <div style={{ marginBottom:10, padding:'10px 14px', borderRadius:6, background:'rgba(15,20,30,0.6)', border:'1px solid #1e293b' }}>
+        {/* Row 1: Ticker + bias + scenarios + badge */}
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:6 }}>
+          <span style={{ background:'#f59e0b', color:'#000', fontWeight:700, fontSize:11, padding:'2px 8px', borderRadius:4, fontFamily:"'JetBrains Mono',monospace" }}>{ticker}</span>
+          {sc && <span style={{ background: sc.overall_bias==='BULLISH'?'rgba(34,197,94,0.12)':sc.overall_bias==='BEARISH'?'rgba(239,68,68,0.12)':'rgba(255,255,255,0.06)', color: sc.overall_bias==='BULLISH'?'#22c55e':sc.overall_bias==='BEARISH'?'#ef4444':'#5a5e72', fontSize:10, padding:'2px 8px', borderRadius:4, fontWeight:600, fontFamily:"'JetBrains Mono',monospace" }}>{sc.overall_bias || 'NEUTRAL'}</span>}
+          {sc && sc.primary_scenario && <span style={{ fontSize:10, color:COLORS.text, fontFamily:"'JetBrains Mono',monospace" }}>Primary: {sc.primary_scenario.replace(/_/g,' ')}{sc.primary_probability ? ' ('+Math.round(sc.primary_probability*100)+'%)' : ''}</span>}
+          {sc && sc.alt_scenario && <span style={{ fontSize:10, color:COLORS.textDim, fontFamily:"'JetBrains Mono',monospace" }}>Alt: {sc.alt_scenario.replace(/_/g,' ')}{sc.alt_probability ? ' ('+Math.round(sc.alt_probability*100)+'%)' : ''}</span>}
+          <span style={{ marginLeft:'auto', fontSize:8, color: sc?'#22c55e':COLORS.textDim, fontFamily:"'JetBrains Mono',monospace" }}>{sc ? '\u25CF LIVE' : '\u25CB NO DATA'}</span>
+        </div>
+        {/* Row 2: Engine signals */}
+        <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', fontSize:10, fontFamily:"'JetBrains Mono',monospace", color:COLORS.textDim }}>
+          {gex && <span>GEX: <span style={{ color: (gex.gex_regime||'').toUpperCase()==='NEGATIVE'?'#ef4444':(gex.gex_regime||'').toUpperCase()==='POSITIVE'?'#22c55e':COLORS.textDim }}>{(gex.gex_regime||'--').toUpperCase()}</span>{gex.gamma_flip ? ' \u00B7 Flip $'+Number(gex.gamma_flip).toFixed(2) : ''}</span>}
+          {dm && <span>DeMark: {(dm.setup_direction||'--')} {dm.setup_count||0}/9</span>}
+          {fib && <span>61.8%: ${fib.r_618 ? Number(fib.r_618).toFixed(2) : '--'}{fib.nearest_level ? ' \u00B7 Nearest: '+fib.nearest_level : ''}</span>}
+          {vix && <span>Vol: <span style={{ color: vix.vol_regime_state==='CRISIS_WATCH'?'#ef4444':vix.vol_regime_state==='ELEVATED_CAUTION'?'#f59e0b':vix.vol_regime_state==='CALM_EXPANSIONARY'?'#22c55e':'#5a5e72' }}>{vix.vol_regime_state}</span>{vix.confidence_modifier ? ' ('+(vix.confidence_modifier>0?'+':'')+Math.round(vix.confidence_modifier*100)+'%)' : ''}</span>}
+        </div>
       </div>
-      <Lbl>Scenario Surface — Price × DTE → Expected P&L</Lbl>
+      {/* Separator */}
+      <div style={{ height:1, background:'#1e293b', marginBottom:10 }} />
+      <Lbl>Scenario Surface -- Price x DTE -- Expected P&L</Lbl>
       {loading ? <Card style={{ textAlign:"center",padding:40 }}><Mono s={14} c={COLORS.textDim}>Loading...</Mono></Card> : (
         <Card style={{ overflow:"auto" }}>
           {/* Tooltip */}
@@ -1347,7 +1359,7 @@ function ConvexScenarioSurface({ selectedTicker, setSelectedTicker, engineData, 
         </Card>
       )}
       <div style={{ marginTop:8, fontSize:10, color:COLORS.textDim, fontFamily:"'JetBrains Mono',monospace" }}>
-        Scenario surface shows theoretical P&L grid. Live engine data shown above for {ticker}.
+        P&L surface shows theoretical structure outcomes. Live PIE engine data shown above for {ticker}.
       </div>
     </div>
   );
@@ -1366,7 +1378,7 @@ function generateFlowMock() {
   }));
 }
 
-function OptionsFlowTab() {
+function OptionsFlowTab({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
@@ -1377,10 +1389,10 @@ function OptionsFlowTab() {
       try {
         const sb = getDataSupabase();
         if (sb) {
-          const [scanRes, scenRes] = await Promise.all([
+          const [snRes, scRes] = await Promise.all([
             sb.from('scanner_candidates')
               .select('*')
-              .eq('cluster', 'METALS')
+              .in('cluster', ['METALS'])
               .order('opportunity_score', { ascending: false })
               .limit(10),
             sb.from('scenario_synthesis')
@@ -1389,38 +1401,34 @@ function OptionsFlowTab() {
               .limit(20)
           ]);
           const scMap = {};
-          (scenRes.data || []).forEach(r => {
+          (scRes.data || []).forEach(r => {
             if (!scMap[r.ticker]) scMap[r.ticker] = r;
           });
-          if (scanRes.data && scanRes.data.length > 0) {
-            const mapped = scanRes.data.map(r => {
+          if (snRes.data && snRes.data.length > 0) {
+            const mapped = snRes.data.map(r => {
               const sc = scMap[r.ticker] || {};
-              const bias = (sc.primary_bias || sc.overall_bias || '').toUpperCase();
+              const isBearish = sc.overall_bias === 'BEARISH';
+              const isBullish = sc.overall_bias === 'BULLISH';
               return {
                 ticker: r.ticker,
-                call_volume: bias === 'BULLISH'
+                call_volume: isBullish
                   ? Math.round(r.opportunity_score * 1000)
-                  : Math.round(r.opportunity_score * 400),
-                put_volume: bias === 'BEARISH'
+                  : Math.round(r.opportunity_score * 300),
+                put_volume: isBearish
                   ? Math.round(r.opportunity_score * 1000)
-                  : Math.round(r.opportunity_score * 400),
-                call_put_ratio: bias === 'BULLISH'
-                  ? 0.65
-                  : bias === 'BEARISH'
-                  ? 1.35
-                  : 1.00,
+                  : Math.round(r.opportunity_score * 300),
+                call_put_ratio: isBullish ? 0.62
+                  : isBearish ? 1.42 : 1.00,
                 largest_trade: {
-                  type: bias === 'BEARISH' ? 'PUT' : 'CALL',
+                  type: isBearish ? 'PUT' : 'CALL',
                   strike: r.spot_price
                     ? Math.round(r.spot_price * 0.95)
                     : 0,
                   size: r.demark_count || 0,
                   premium: '$' + (r.opportunity_score * 100).toFixed(0)
                 },
-                flow_signal: bias === 'BULLISH'
-                  ? 'BULLISH_SWEEP'
-                  : bias === 'BEARISH'
-                  ? 'BEARISH_SWEEP'
+                flow_signal: isBullish ? 'BULLISH_SWEEP'
+                  : isBearish ? 'BEARISH_SWEEP'
                   : 'NEUTRAL'
               };
             });
@@ -1440,27 +1448,31 @@ function OptionsFlowTab() {
     load();
   }, []);
 
+  const displayRows = selectedTicker
+    ? rows.filter(r => r.ticker === selectedTicker)
+    : rows;
+
   const thStyle = { fontSize:9,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:COLORS.textDim,padding:"8px 10px",borderBottom:`1px solid ${COLORS.border}`,textAlign:"left" };
   const tdStyle = { padding:"8px 10px",borderBottom:`1px solid ${COLORS.border}08`,fontSize:12,fontFamily:"'JetBrains Mono',monospace" };
 
   return (
     <div>
       <Lbl>Options Flow -- Volume & Sweep Detection</Lbl>
+      <div style={{ fontSize:9, color:'#5a5e72', marginBottom:8, fontFamily:"'JetBrains Mono', monospace" }}>
+        Synthetic flow derived from PIE engine outputs {'\u00B7'} Connect Unusual Whales API for real flow data
+      </div>
       <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:12 }}>
         <div style={{ width:8,height:8,borderRadius:'50%',background:isLive?'#22c55e':'#5a5e72',boxShadow:isLive?'0 0 6px rgba(34,197,94,0.5)':'none' }} />
         <span style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:isLive?'#22c55e':'#5a5e72' }}>
           {isLive ? 'Synthetic \u00B7 PIE-derived' : 'Mock data'}
         </span>
       </div>
-      <div style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:'#5a5e72',marginBottom:14 }}>
-        Flow signals derived from PIE engine outputs. Connect Unusual Whales API for real options flow.
-      </div>
       {/* Bar chart */}
       <Card style={{ marginBottom:14 }}>
         <Lbl>Call vs Put Volume</Lbl>
         <div style={{ height:220 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={rows.map(r => ({ name:r.ticker, calls:r.call_volume||0, puts:r.put_volume||0 }))} barGap={2}>
+            <BarChart data={displayRows.map(r => ({ name:r.ticker, calls:r.call_volume||0, puts:r.put_volume||0 }))} barGap={2}>
               <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
               <XAxis dataKey="name" tick={{ fontSize:10,fill:COLORS.textDim }} />
               <YAxis tick={{ fontSize:9,fill:COLORS.textDim }} />
@@ -1480,7 +1492,7 @@ function OptionsFlowTab() {
                 <th style={thStyle}>TICKER</th><th style={thStyle}>CALL VOL</th><th style={thStyle}>PUT VOL</th><th style={thStyle}>C/P RATIO</th><th style={thStyle}>LARGEST TRADE</th><th style={thStyle}>FLOW SIGNAL</th>
               </tr></thead>
               <tbody>
-                {rows.map(r => {
+                {displayRows.map(r => {
                   const sigClr = r.flow_signal==="BULLISH_SWEEP"?COLORS.greenDim:r.flow_signal==="BEARISH_SWEEP"?COLORS.redDim:COLORS.textDim;
                   return (
                     <tr key={r.ticker}>
@@ -1987,6 +1999,11 @@ function VolSurfaceTab() {
         </Card>
       )}
 
+      {/* Vol surface note */}
+      <div style={{ padding: '8px 16px', fontSize: 9, color: '#3a3e52', fontFamily: "'JetBrains Mono', monospace", letterSpacing: 1, borderTop: '1px solid rgba(255,255,255,0.04)', marginBottom: 16 }}>
+        VOL SURFACE -- theoretical IV grid {'\u00B7'} mock data {'\u00B7'} connect live IV feed to populate
+      </div>
+
       {/* ═══ DIVIDER ═══ */}
       <div style={{ borderTop: '1px solid ' + COLORS.border, margin: '24px 0 20px 0' }} />
 
@@ -2127,6 +2144,11 @@ function VolSurfaceTab() {
           </div>
         </div>
       )}
+
+      {/* PIE signals footer note */}
+      <div style={{ padding: '8px 16px', fontSize: 9, color: '#3a3e52', fontFamily: "'JetBrains Mono', monospace", letterSpacing: 1, textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.04)', marginTop: 8 }}>
+        PIE engine outputs {'\u00B7'} nightly pipeline {'\u00B7'} last run shown in engine timestamps above
+      </div>
     </div>
   );
 }
@@ -2303,39 +2325,14 @@ function ProbabilityCard({ data, compact }) {
 }
 
 // ── RegimeProbabilityTab — wired to scenario_synthesis + briefing_reports ──
-function RegimeProbabilityTab() {
-  const [scenarios, setScenarios] = React.useState({});
-  const [briefings, setBriefings] = React.useState({});
-  const [loading, setLoading] = React.useState(true);
-  const [lastRunTs, setLastRunTs] = React.useState(null);
-  const TICKERS = ['SLV','GLD','GDX','SILJ','SIL'];
-
-  React.useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const sb = getDataSupabase();
-      if (!sb) { setLoading(false); return; }
-      const { data: sc } = await sb
-        .from('scenario_synthesis')
-        .select('*')
-        .order('run_ts', { ascending: false })
-        .limit(20);
-      const { data: br } = await sb
-        .from('briefing_reports')
-        .select('ticker, regime_label, conviction_score, summary, created_at')
-        .order('created_at', { ascending: false })
-        .limit(20);
-      const scMap = {};
-      (sc || []).forEach(r => { if (!scMap[r.ticker]) scMap[r.ticker] = r; });
-      const brMap = {};
-      (br || []).forEach(r => { if (!brMap[r.ticker]) brMap[r.ticker] = r; });
-      if (sc && sc.length > 0) setLastRunTs(sc[0].run_ts);
-      setScenarios(scMap);
-      setBriefings(brMap);
-      setLoading(false);
-    };
-    load();
-  }, []);
+function RegimeProbabilityTab({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
+  const scenarios = engineData?.scenario || {};
+  const tickers = selectedTicker
+    ? [selectedTicker]
+    : [...(tickerUniverse?.position || []), ...(tickerUniverse?.watchlist || [])];
+  const vix = engineData?.vix;
+  const hasData = Object.keys(scenarios).length > 0;
+  const latestRun = Object.values(scenarios).map(r => r.run_ts).filter(Boolean).sort().pop();
 
   const mono = { fontFamily: "'JetBrains Mono', monospace" };
   const biasColor = b => b === 'BULLISH' ? '#22c55e' : b === 'BEARISH' ? '#ef4444' : '#5a5e72';
@@ -2348,8 +2345,6 @@ function RegimeProbabilityTab() {
     'SHARP_REVERSAL_DOWN': 'Sharp reversal down',
     'BULLISH_REVERSAL': 'Bullish reversal',
   }[s] || (s || '--').replace(/_/g, ' '));
-
-  const hasData = Object.keys(scenarios).length > 0 || Object.keys(briefings).length > 0;
 
   const sigBadge = (label, val) => {
     if (val === null || val === undefined) return null;
@@ -2382,29 +2377,59 @@ function RegimeProbabilityTab() {
             boxShadow: hasData ? '0 0 5px rgba(34,197,94,0.5)' : 'none'
           }} />
           <span style={{ ...mono, fontSize: 10, color: hasData ? '#86efac' : '#6b7280' }}>
-            {hasData ? 'Live' : 'No data'}
-            {lastRunTs ? ' \u00B7 ' + new Date(lastRunTs).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+            {hasData ? '\u25CF Live' : '\u25CB No data'}
+            {latestRun ? ' \u00B7 ' + new Date(latestRun).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
           </span>
         </div>
       </div>
 
-      {loading ? (
-        <div style={{ padding: 40, textAlign: 'center' }}>
-          <span style={{ ...mono, fontSize: 11, color: COLORS.textDim }}>Loading regime data...</span>
-        </div>
-      ) : !hasData ? (
+      {/* VIX regime banner */}
+      {vix && (() => {
+        const vBgMap = { 'CRISIS_WATCH': 'rgba(239,68,68,0.12)', 'ELEVATED_CAUTION': 'rgba(245,158,11,0.10)', 'CALM_EXPANSIONARY': 'rgba(34,197,94,0.08)', 'NEUTRAL': 'transparent' };
+        const vClrMap = { 'CRISIS_WATCH': '#ef4444', 'ELEVATED_CAUTION': '#f59e0b', 'CALM_EXPANSIONARY': '#22c55e', 'NEUTRAL': '#5a5e72' };
+        const vClr = vClrMap[vix.vol_regime_state] || '#5a5e72';
+        const modPct = vix.confidence_modifier ? (vix.confidence_modifier > 0 ? '+' : '') + Math.round(vix.confidence_modifier * 100) + '%' : '0%';
+        const showDot = vix.vol_regime_state === 'CRISIS_WATCH' || vix.vol_regime_state === 'ELEVATED_CAUTION';
+        return (
+          <div style={{
+            padding: '8px 16px', marginBottom: 12, borderRadius: 6,
+            background: vBgMap[vix.vol_regime_state] || 'transparent',
+            border: '1px solid ' + vClr + '30',
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: COLORS.textDim,
+            display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center'
+          }}>
+            {showDot && <span style={{ width: 6, height: 6, borderRadius: '50%', background: vClr, boxShadow: '0 0 6px ' + vClr + '80', display: 'inline-block', animation: vix.vol_regime_state === 'CRISIS_WATCH' ? 'pulse 1.5s ease-in-out infinite' : 'none' }} />}
+            <span>VOL REGIME: <span style={{ color: vClr, fontWeight: 700 }}>{vix.vol_regime_state}</span></span>
+            <span style={{ color: '#3a3e52' }}>{'\u00B7'}</span>
+            <span>VIX <span style={{ color: COLORS.text }}>{vix.vix != null ? Number(vix.vix).toFixed(1) : '--'}</span></span>
+            <span style={{ color: '#3a3e52' }}>{'\u00B7'}</span>
+            <span>VIX9D <span style={{ color: COLORS.text }}>{vix.vix9d != null ? Number(vix.vix9d).toFixed(1) : '--'}</span></span>
+            <span style={{ color: '#3a3e52' }}>{'\u00B7'}</span>
+            <span>VVIX <span style={{ color: COLORS.text }}>{vix.vvix != null ? Number(vix.vvix).toFixed(1) : '--'}</span></span>
+            <span style={{ color: '#3a3e52' }}>{'\u00B7'}</span>
+            <span>Term: <span style={{ color: COLORS.text }}>{vix.term_structure_state || '--'}</span></span>
+            <span style={{ color: '#3a3e52' }}>{'\u00B7'}</span>
+            <span>Confidence modifier: <span style={{ color: vClr, fontWeight: 600 }}>{modPct}</span></span>
+          </div>
+        );
+      })()}
+
+      {!hasData ? (
         <div style={{ padding: 40, textAlign: 'center' }}>
           <span style={{ ...mono, fontSize: 11, color: '#5a5e72' }}>Awaiting data</span>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
-          {TICKERS.map(ticker => {
-            const sc = scenarios[ticker];
-            const br = briefings[ticker];
-            if (!sc && !br) return (
-              <div key={ticker} style={{
-                padding: '16px 18px', borderRadius: 8,
-                background: 'rgba(15,20,30,0.6)', border: '1px solid #1e293b'
+          {tickers.map(ticker => {
+            const sc = engineData?.scenario?.[ticker];
+            const gex = engineData?.gex?.[ticker];
+            const dm = engineData?.demark?.[ticker];
+            const isSel = selectedTicker === ticker;
+            if (!sc) return (
+              <div key={ticker} onClick={() => setSelectedTicker(ticker)} style={{
+                padding: '16px 18px', borderRadius: 8, cursor: 'pointer',
+                background: 'rgba(15,20,30,0.6)', border: isSel ? '1px solid #f59e0b' : '1px solid #1e293b',
+                transition: 'border-color 0.15s'
               }}>
                 <span style={{
                   ...mono, fontSize: 11, fontWeight: 700,
@@ -2414,14 +2439,15 @@ function RegimeProbabilityTab() {
               </div>
             );
 
-            const bc = sc ? biasColor(sc.overall_bias) : '#5a5e72';
-            const engSigs = sc ? (typeof sc.engine_signals === 'string' ? JSON.parse(sc.engine_signals) : sc.engine_signals) || {} : {};
+            const bc = biasColor(sc.overall_bias);
+            const engSigs = (typeof sc.engine_signals === 'string' ? JSON.parse(sc.engine_signals) : sc.engine_signals) || {};
 
             return (
-              <div key={ticker} style={{
-                padding: '14px 16px', borderRadius: 8,
-                background: 'rgba(15,20,30,0.6)',
-                border: `1px solid ${bc}44`
+              <div key={ticker} onClick={() => setSelectedTicker(ticker)} style={{
+                padding: '14px 16px', borderRadius: 8, cursor: 'pointer',
+                background: isSel ? 'rgba(245,158,11,0.06)' : 'rgba(15,20,30,0.6)',
+                border: isSel ? '1px solid #f59e0b' : '1px solid ' + bc + '44',
+                transition: 'border-color 0.15s'
               }}>
                 {/* Card header */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -2429,76 +2455,57 @@ function RegimeProbabilityTab() {
                     ...mono, fontSize: 11, fontWeight: 700,
                     background: '#92400e', color: '#fbbf24', padding: '1px 8px', borderRadius: 4
                   }}>{ticker}</span>
-                  {sc && (
-                    <span style={{
-                      ...mono, fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
-                      background: biasBg(sc.overall_bias), color: bc
-                    }}>{sc.overall_bias}</span>
-                  )}
-                  {br && br.regime_label && (
-                    <span style={{ ...mono, fontSize: 9, color: '#94a3b8' }}>
-                      {br.regime_label}
-                    </span>
-                  )}
+                  <span style={{
+                    ...mono, fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
+                    background: biasBg(sc.overall_bias), color: bc
+                  }}>{sc.overall_bias}</span>
+                  {gex && <span style={{ ...mono, fontSize: 9, color: '#94a3b8' }}>GEX: {(gex.gex_regime || '--').toUpperCase()}</span>}
+                  {dm && dm.setup_count > 0 && <span style={{ ...mono, fontSize: 9, color: dm.setup_direction === 'buy' ? '#22c55e' : '#ef4444' }}>DM: {(dm.setup_direction || '').toUpperCase()} {dm.setup_count}/9</span>}
                 </div>
 
                 {/* Scenario bars */}
-                {sc && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
-                    {[
-                      { label: shortScen(sc.primary_scenario), pct: sc.primary_probability, color: bc },
-                      { label: shortScen(sc.alt_scenario), pct: sc.alt_probability, color: '#5a5e72' },
-                      { label: shortScen(sc.low_prob_scenario), pct: sc.low_prob_probability, color: '#3b82f6' },
-                    ].map((bar, i) => (
-                      <div key={i}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                          <span style={{ ...mono, fontSize: 10, color: i === 0 ? bar.color : '#94a3b8' }}>{bar.label}</span>
-                          <span style={{ ...mono, fontSize: 10, fontWeight: 700, color: i === 0 ? bar.color : '#94a3b8' }}>
-                            {Math.round((bar.pct || 0) * 100)}%
-                          </span>
-                        </div>
-                        <div style={{ height: 6, borderRadius: 3, background: '#1e293b', overflow: 'hidden' }}>
-                          <div style={{
-                            width: Math.round((bar.pct || 0) * 100) + '%',
-                            height: '100%', borderRadius: 3, background: bar.color,
-                            opacity: i === 0 ? 1 : 0.5,
-                            transition: 'width 0.3s'
-                          }} />
-                        </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                  {[
+                    { label: shortScen(sc.primary_scenario), pct: sc.primary_probability, color: bc },
+                    { label: shortScen(sc.alt_scenario), pct: sc.alt_probability, color: '#5a5e72' },
+                    { label: shortScen(sc.low_prob_scenario), pct: sc.low_prob_probability, color: '#3b82f6' },
+                  ].map((bar, i) => (
+                    <div key={i}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <span style={{ ...mono, fontSize: 10, color: i === 0 ? bar.color : '#94a3b8' }}>{bar.label}</span>
+                        <span style={{ ...mono, fontSize: 10, fontWeight: 700, color: i === 0 ? bar.color : '#94a3b8' }}>
+                          {Math.round((bar.pct || 0) * 100)}%
+                        </span>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      <div style={{ height: 6, borderRadius: 3, background: '#1e293b', overflow: 'hidden' }}>
+                        <div style={{
+                          width: Math.round((bar.pct || 0) * 100) + '%',
+                          height: '100%', borderRadius: 3, background: bar.color,
+                          opacity: i === 0 ? 1 : 0.5,
+                          transition: 'width 0.3s'
+                        }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
 
                 {/* Engine signals row */}
-                {sc && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 8 }}>
-                    {sigBadge('GEX', engSigs.gex)}
-                    {sigBadge('DM', engSigs.demark)}
-                    {sigBadge('RL', engSigs.reload)}
-                    {sigBadge('RG', engSigs.regime)}
-                    {sigBadge('EW', engSigs.ew)}
-                    <span style={{ ...mono, fontSize: 9, color: '#5a5e72', marginLeft: 4 }}>
-                      Score: {engSigs.raw_score ?? '--'}
-                    </span>
-                  </div>
-                )}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 8 }}>
+                  {sigBadge('GEX', engSigs.gex)}
+                  {sigBadge('DM', engSigs.demark)}
+                  {sigBadge('RL', engSigs.reload)}
+                  {sigBadge('RG', engSigs.regime)}
+                  {sigBadge('EW', engSigs.ew)}
+                  <span style={{ ...mono, fontSize: 9, color: '#5a5e72', marginLeft: 4 }}>
+                    Score: {engSigs.raw_score ?? '--'}
+                  </span>
+                </div>
 
-                {/* Briefing summary */}
-                {br && br.summary && (
-                  <div style={{
-                    ...mono, fontSize: 10, color: '#94a3b8', lineHeight: 1.5,
-                    marginBottom: 4,
-                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden', textOverflow: 'ellipsis'
-                  }}>
-                    {br.summary}
-                  </div>
-                )}
-                {br && br.conviction_score != null && (
+                {/* Confidence score */}
+                {sc.confidence_score != null && (
                   <div style={{ textAlign: 'right' }}>
                     <span style={{ ...mono, fontSize: 9, color: '#5a5e72' }}>
-                      Conviction: {br.conviction_score}
+                      Confidence: {Math.round(sc.confidence_score * 100)}%
                     </span>
                   </div>
                 )}
@@ -3293,33 +3300,6 @@ function MSAOperatorDashboard() {
 
 function MSALensTab({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [gateStates, setGateStates] = useState({});
-  const [liveRows, setLiveRows] = React.useState([]);
-
-  // Fetch live regime data from briefing_reports (public schema)
-  React.useEffect(() => {
-    const sb = getDataSupabase();
-    if (!sb) return;
-    sb.from('briefing_reports')
-      .select('ticker, regime_label, conviction_score, summary, created_at')
-      .order('created_at', { ascending: false })
-      .limit(20)
-      .then(({ data, error }) => {
-        if (!error && data && data.length > 0) {
-          setLiveRows(data);
-        }
-      });
-  }, []);
-
-  // Latest row per ticker from live data
-  const latestByTicker = {};
-  liveRows.forEach(r => {
-    if (r.ticker && !latestByTicker[r.ticker]) {
-      latestByTicker[r.ticker] = r;
-    }
-  });
-
-  // Most recent timestamp for data source indicator
-  const latestTimestamp = liveRows.length > 0 ? liveRows[0].created_at : null;
 
   const cycleGateDot = (gateId) => {
     setGateStates(prev => {
@@ -3369,10 +3349,10 @@ function MSALensTab({ selectedTicker, setSelectedTicker, engineData, tickerUnive
     return {
       ticker,
       structure: gex?.gex_regime === 'NEGATIVE'
-        ? 'SHORT GAMMA \u25BC' : 'LONG GAMMA \u25B2',
+        ? 'SHORT GAMMA' : 'LONG GAMMA',
       momentum: dm
         ? (dm.setup_direction || '--').toUpperCase() + ' ' + (dm.setup_count || 0) + '/9'
-        : 'No data',
+        : '--',
       keyLevel: gex
         ? 'Flip $' + (gex.gamma_flip ? Number(gex.gamma_flip).toFixed(2) : '--')
         : '--',
@@ -3381,7 +3361,7 @@ function MSALensTab({ selectedTicker, setSelectedTicker, engineData, tickerUnive
         ? 'MSA-TOP-04'
         : sc?.overall_bias === 'BULLISH'
         ? 'MSA-AGE-02'
-        : 'NEUTRAL'
+        : '--'
     };
   });
 
@@ -3993,7 +3973,7 @@ const PositionEntryForm = ({ onClose, onSaved }) => {
 // OPERATOR CARD — Dense status strip for active positions
 // ═══════════════════════════════════════════════════════════════════
 
-const OperatorCard = () => {
+const OperatorCard = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) => {
   const [positions, setPositions] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -4238,6 +4218,18 @@ const OperatorCard = () => {
                   <span style={{ color: COLORS.textDim }}>--</span>
                 )}
               </div>
+              {(() => {
+                const vd = engineData?.vix;
+                if (!vd) return <div><span style={{ color: COLORS.textDim }}>VOL: </span><span style={{ color: COLORS.textDim }}>--</span></div>;
+                const regimeClr = vd.vol_regime_state === 'CRISIS_WATCH' ? '#ef4444'
+                  : vd.vol_regime_state === 'ELEVATED_CAUTION' ? '#f59e0b'
+                  : vd.vol_regime_state === 'CALM_EXPANSIONARY' ? '#22c55e' : '#5a5e72';
+                const regimeShort = vd.vol_regime_state === 'CRISIS_WATCH' ? 'CRISIS'
+                  : vd.vol_regime_state === 'ELEVATED_CAUTION' ? 'CAUTION'
+                  : vd.vol_regime_state === 'CALM_EXPANSIONARY' ? 'CALM' : 'MID';
+                const mod = vd.confidence_modifier ? ' (' + (vd.confidence_modifier > 0 ? '+' : '') + Math.round(vd.confidence_modifier * 100) + '%)' : '';
+                return <div><span style={{ color: COLORS.textDim }}>VOL: </span><span style={{ color: regimeClr }}>{regimeShort}{mod}</span></div>;
+              })()}
             </div>
           );
         })}
@@ -5615,6 +5607,43 @@ const ZoneMapTab = ({ selectedTicker, setSelectedTicker, engineData, tickerUnive
         </span>
       </div>
       <ScenarioStrip />
+      {(() => {
+        const vd = engineData?.vix;
+        if (!vd) return null;
+        const bgMap = {
+          'CRISIS_WATCH': 'rgba(239,68,68,0.10)',
+          'ELEVATED_CAUTION': 'rgba(245,158,11,0.08)',
+          'CALM_EXPANSIONARY': 'rgba(34,197,94,0.08)',
+          'NEUTRAL': 'transparent'
+        };
+        const clrMap = {
+          'CRISIS_WATCH': '#ef4444',
+          'ELEVATED_CAUTION': '#f59e0b',
+          'CALM_EXPANSIONARY': '#22c55e',
+          'NEUTRAL': '#5a5e72'
+        };
+        const regimeClr = clrMap[vd.vol_regime_state] || '#5a5e72';
+        const modPct = vd.confidence_modifier ? (vd.confidence_modifier > 0 ? '+' : '') + Math.round(vd.confidence_modifier * 100) + '%' : '0%';
+        return (
+          <div style={{
+            padding: '8px 16px', marginBottom: 12, borderRadius: 6,
+            background: bgMap[vd.vol_regime_state] || 'transparent',
+            border: '1px solid ' + regimeClr + '30',
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: COLORS.textDim,
+            display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center'
+          }}>
+            <span>VOL REGIME: <span style={{ color: regimeClr, fontWeight: 700 }}>{vd.vol_regime_state}</span></span>
+            <span style={{ color: '#3a3e52' }}>{'\u00B7'}</span>
+            <span>VIX <span style={{ color: COLORS.text }}>{vd.vix != null ? Number(vd.vix).toFixed(1) : '--'}</span></span>
+            <span>VIX9D <span style={{ color: COLORS.text }}>{vd.vix9d != null ? Number(vd.vix9d).toFixed(1) : '--'}</span></span>
+            <span>VVIX <span style={{ color: COLORS.text }}>{vd.vvix != null ? Number(vd.vvix).toFixed(1) : '--'}</span></span>
+            <span style={{ color: '#3a3e52' }}>{'\u00B7'}</span>
+            <span>Term: <span style={{ color: COLORS.text }}>{vd.term_structure_state || '--'}</span></span>
+            <span style={{ color: '#3a3e52' }}>{'\u00B7'}</span>
+            <span>Confidence mod: <span style={{ color: regimeClr, fontWeight: 600 }}>{modPct}</span></span>
+          </div>
+        );
+      })()}
       {tickers.length === 0 && (
         <div style={{ color: COLORS.textDim, fontSize: 12 }}>No active tickers found.</div>
       )}
@@ -6283,6 +6312,25 @@ const TickerBar = ({ tickerUniverse, selectedTicker, setSelectedTicker, engineLo
       }}>
         {engineLoaded ? '\u25CF live' : '\u25CB loading'}
       </span>
+      {(() => {
+        const vd = engineData?.vix;
+        if (!vd) return null;
+        const regimeClr = vd.vol_regime_state === 'CRISIS_WATCH' ? '#ef4444'
+          : vd.vol_regime_state === 'ELEVATED_CAUTION' ? '#f59e0b'
+          : vd.vol_regime_state === 'CALM_EXPANSIONARY' ? '#22c55e' : '#5a5e72';
+        const regimeShort = vd.vol_regime_state === 'CRISIS_WATCH' ? 'CRISIS'
+          : vd.vol_regime_state === 'ELEVATED_CAUTION' ? 'CAUTION'
+          : vd.vol_regime_state === 'CALM_EXPANSIONARY' ? 'CALM' : 'MID';
+        return (
+          <span style={{
+            fontSize: 9, fontFamily: "'JetBrains Mono', monospace",
+            color: regimeClr, fontWeight: 600, marginLeft: 8,
+            animation: vd.vol_regime_state === 'CRISIS_WATCH' ? 'pulse 1.5s ease-in-out infinite' : 'none'
+          }}>
+            VIX {vd.vix != null ? Number(vd.vix).toFixed(1) : '--'} {'\u00B7'} {regimeShort}
+          </span>
+        );
+      })()}
     </div>
   );
 };
@@ -6332,8 +6380,8 @@ function App() {
         });
 
       // Load all engine data in parallel
-      let pending = 6;
-      const ed = { gex: {}, demark: {}, fib: {}, scenario: {}, scanner: [], reload: {} };
+      let pending = 7;
+      const ed = { gex: {}, demark: {}, fib: {}, scenario: {}, scanner: [], reload: {}, vix: null };
       const check = () => { pending--; if (pending <= 0) { setEngineData(ed); setEngineLoaded(true); } };
 
       sb.from('gex_snapshots').select('*')
@@ -6360,6 +6408,10 @@ function App() {
       sb.from('reload_stage_log').select('*')
         .order('run_ts', { ascending: false }).limit(20)
         .then(({ data }) => { ed.reload = toMap(data); check(); });
+
+      sb.from('vix_regime').select('*')
+        .order('run_ts', { ascending: false }).limit(1)
+        .then(({ data }) => { ed.vix = (data && data[0]) || null; check(); });
     };
     loadUniverse();
   }, []);
