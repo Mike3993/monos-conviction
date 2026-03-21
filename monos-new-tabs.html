@@ -3640,16 +3640,18 @@ const OperatorCard = () => {
                 </span>
               </div>
               <div>
-                <span style={{ color: COLORS.textDim }}>DMARK: </span>
+                <span style={{ color: COLORS.textDim }}>DEMARK: </span>
                 {c.demark ? (
-                  <span style={{
-                    color: c.demark.signal_state === 'SETUP_9_PERFECT' ? '#22c55e' :
-                           c.demark.signal_state === 'SETUP_9_IMPERFECT' ? '#5b8af5' :
-                           c.demark.signal_state === 'SETUP_IN_PROGRESS' ? '#f59e0b' : COLORS.textDim
-                  }}>
-                    {c.demark.setup_direction === 'buy' ? 'B' : 'S'}{c.demark.setup_count}/9
-                    {c.demark.setup_complete ? (c.demark.setup_perfect ? ' *' : ' #') : ''}
-                  </span>
+                  c.demark.signal_state === 'IDLE' ? (
+                    <span style={{ color: COLORS.textDim }}>IDLE</span>
+                  ) : (
+                    <span style={{
+                      color: c.demark.setup_direction === 'buy' ? '#22c55e' : '#ef4444'
+                    }}>
+                      {c.demark.setup_direction.toUpperCase()} {c.demark.setup_count}/9
+                      {c.demark.signal_state.includes('9') ? ' \u25CF' : ''}
+                    </span>
+                  )
                 ) : (
                   <span style={{ color: COLORS.textDim }}>--</span>
                 )}
@@ -4496,8 +4498,8 @@ const ZoneCard = ({ ticker }) => {
         const dmStateLabel = {
           'IDLE': 'IDLE',
           'SETUP_IN_PROGRESS': 'IN PROGRESS',
-          'SETUP_9_IMPERFECT': 'SETUP 9',
-          'SETUP_9_PERFECT': '* SETUP 9',
+          'SETUP_9_IMPERFECT': 'Setup 9',
+          'SETUP_9_PERFECT': 'Setup 9 \u2605',
           'COUNTDOWN_IN_PROGRESS': 'COUNTDOWN',
           'COUNTDOWN_13': 'COUNTDOWN 13',
         };
@@ -4532,21 +4534,21 @@ const ZoneCard = ({ ticker }) => {
                 background: isBuy ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
                 color: dirColor
               }}>{isBuy ? 'BUY SETUP' : 'SELL SETUP'}</span>
-              {/* Progress bar */}
-              <div style={{
-                flex: '0 0 80px', height: 10, borderRadius: 4,
-                background: '#1e293b', position: 'relative', overflow: 'hidden'
-              }}>
+              {/* Progress bar + label */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <div style={{
-                  width: pct + '%', height: '100%', borderRadius: 4,
-                  background: dirColor, transition: 'width 0.3s'
-                }} />
+                  width: 80, height: 6, borderRadius: 3,
+                  background: '#1e293b', overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: pct + '%', height: '100%', borderRadius: 3,
+                    background: dirColor, transition: 'width 0.3s'
+                  }} />
+                </div>
                 <span style={{
-                  position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fontWeight: 700,
-                  color: '#fff', textShadow: '0 0 3px rgba(0,0,0,0.8)'
-                }}>{dm.setup_count}/9</span>
+                  fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#94a3b8',
+                  textAlign: 'center'
+                }}>{dm.setup_count} / 9</span>
               </div>
               {/* Signal state badge */}
               <span style={{
