@@ -1,8 +1,12 @@
 """
 MONOS Scenario Synthesis Engine
-Reads latest signals from GEX, DeMark, Reload, Briefing engines.
-Scores directional agreement, synthesizes probability-weighted scenarios,
-and writes results to public.scenario_synthesis in Supabase.
+3-Layer Weighted Architecture:
+  Layer 1 - Directional Thesis (40%): Regime, DeMark, Reload
+  Layer 2 - Mechanical Structure (35%): GEX, Fib, Spot Structure
+  Layer 3 - Convexity Valuation (25%): Symmetry, VIX modifier
+Reads latest signals from all engines, scores directional agreement,
+synthesizes probability-weighted scenarios, and writes results to
+public.scenario_synthesis in Supabase.
 """
 
 import os
@@ -66,7 +70,7 @@ HEADERS_SB = {
 }
 
 # ---------------------------------------------------------------------------
-# STEP 2 -- FETCH ENGINE OUTPUTS
+# SUPABASE HELPER
 # ---------------------------------------------------------------------------
 def sb_get(table, params):
     """Generic Supabase REST GET. Returns list of rows or []."""
@@ -84,6 +88,9 @@ def sb_get(table, params):
         return []
 
 
+# ---------------------------------------------------------------------------
+# FETCH ENGINE OUTPUTS
+# ---------------------------------------------------------------------------
 def fetch_engine_data(ticker):
     """Fetch most recent row from each engine table for a ticker."""
 
@@ -124,28 +131,63 @@ def fetch_engine_data(ticker):
     })
     brief = brief_rows[0] if brief_rows else None
 
-    return gex, dm, reload, brief
+    # Fib levels
+    fib_rows = sb_get('fib_levels', {
+        'select': '*',
+        'ticker': f'eq.{ticker}',
+        'order': 'run_ts.desc',
+        'limit': '1',
+    })
+    fib = fib_rows[0] if fib_rows else None
+
+    # Symmetry snapshots
+    sym_rows = sb_get('symmetry_snapshots', {
+        'select': '*',
+        'ticker': f'eq.{ticker}',
+        'order': 'run_ts.desc',
+        'limit': '1',
+    })
+    sym = sym_rows[0] if sym_rows else None
+
+    # VIX regime
+    vix_rows = sb_get('vix_regime', {
+        'select': '*',
+        'order': 'run_ts.desc',
+        'limit': '1',
+    })
+    vix = vix_rows[0] if vix_rows else None
+
+    # Conflict states
+    conflict_rows = sb_get('conflict_states', {
+        'select': 'conflict_state',
+        'ticker': f'eq.{ticker}',
+        'order': 'run_ts.desc',
+        'limit': '1',
+    })
+    conflict = conflict_rows[0] if conflict_rows else None
+
+    return gex, dm, reload, brief, fib, sym, vix, conflict
 
 
 # ---------------------------------------------------------------------------
-# STEP 3 -- SCORE EACH ENGINE
+# LAYER 1 -- DIRECTIONAL THESIS (weight 0.40)
 # ---------------------------------------------------------------------------
-def score_gex(gex):
-    """GEX signal: NEGATIVE -> -1, POSITIVE -> +1, else 0."""
-    if not gex:
-        return None
-    regime = (gex.get('gex_regime') or '').upper()
-    if regime == 'NEGATIVE':
-        return -1
-    elif regime == 'POSITIVE':
+def score_regime(brief):
+    """Regime signal from briefing_reports regime_label."""
+    if not brief:
+        return 0
+    label = (brief.get('regime_label') or '').upper()
+    if 'BULL' in label:
         return 1
+    elif 'BEAR' in label:
+        return -1
     return 0
 
 
 def score_demark(dm):
     """DeMark signal based on direction + strength threshold."""
     if not dm:
-        return None
+        return 0
     direction = (dm.get('setup_direction') or '').lower()
     strength = dm.get('signal_strength') or 0
     if direction == 'buy' and strength > 0.3:
@@ -158,66 +200,177 @@ def score_demark(dm):
 def score_reload(reload):
     """Reload signal from reload_stage."""
     if not reload:
-        return None
+        return 0
     stage = (reload.get('reload_stage') or '').upper()
     if stage == 'ACCUMULATION':
         return 1
     elif stage == 'EXHAUSTION':
         return -1
-    elif stage == 'ZONE_WATCH':
-        return 0
     return 0
 
 
-def score_regime(brief):
-    """Regime signal from briefing_reports regime_label."""
-    if not brief:
-        return None
-    label = (brief.get('regime_label') or '').upper()
-    if 'BULL' in label:
-        return 1
-    elif 'BEAR' in label:
-        return -1
-    elif 'NEUTRAL' in label:
-        return 0
-    return 0
-
-
-def score_ew():
-    """EW signal -- placeholder, no engine yet."""
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# STEP 4 -- SYNTHESIZE SCENARIOS
-# ---------------------------------------------------------------------------
-def synthesize(gex_signal, demark_signal, reload_signal, regime_signal, ew_signal):
-    """Combine engine signals into scenario probabilities."""
-    signals = [gex_signal, demark_signal, reload_signal, regime_signal, ew_signal]
-    active = [s for s in signals if s is not None and s != 0]
+def compute_layer1(regime_signal, demark_signal, reload_signal):
+    """Layer 1: Directional Thesis -- average of active signals."""
+    signals = [regime_signal, demark_signal, reload_signal]
+    active = [s for s in signals if s != 0]
     score = sum(active) / len(active) if active else 0
+    return score, signals
 
-    # Count agreements
-    if active and score != 0:
-        sign = 1 if score > 0 else -1
-        engines_agreement = sum(1 for s in active if s == sign)
+
+# ---------------------------------------------------------------------------
+# LAYER 2 -- MECHANICAL STRUCTURE (weight 0.35)
+# ---------------------------------------------------------------------------
+def score_gex(gex):
+    """GEX signal: NEGATIVE -> -1, POSITIVE -> +1, else 0."""
+    if not gex:
+        return 0
+    regime = (gex.get('gex_regime') or '').upper()
+    if regime == 'NEGATIVE':
+        return -1
+    elif regime == 'POSITIVE':
+        return 1
+    return 0
+
+
+def score_fib(fib, spot_price):
+    """Fib signal: near support in downtrend = +1, near resistance in uptrend = -1."""
+    if not fib or not spot_price:
+        return 0
+    # Check nearest fib level distance
+    nearest_pct = fib.get('nearest_distance_pct')
+    direction = (fib.get('direction') or '').lower()
+    if nearest_pct is None:
+        # Try to compute from fib level data
+        level_price = fib.get('nearest_level_price') or fib.get('fib_level_price')
+        if level_price and spot_price:
+            nearest_pct = abs(spot_price - level_price) / spot_price * 100
+        else:
+            return 0
+    if nearest_pct <= 3.0:
+        if direction == 'down':
+            return 1   # near support in downtrend = bullish bounce potential
+        else:
+            return -1  # near resistance in uptrend = bearish rejection potential
+    return 0
+
+
+def score_spot_structure(gex):
+    """Spot structure: where is spot relative to put/call walls."""
+    if not gex:
+        return 0
+    put_wall = gex.get('put_wall')
+    call_wall = gex.get('call_wall')
+    spot = gex.get('spot_price')
+    if not put_wall or not call_wall or not spot:
+        return 0
+    if spot < put_wall:
+        return -1   # below put wall = bearish
+    elif spot > call_wall:
+        return 1    # above call wall = bullish
     else:
-        engines_agreement = 0
-    engines_total = len([s for s in signals if s is not None])
+        midpoint = (put_wall + call_wall) / 2
+        if spot < midpoint:
+            return -1  # lower half of range
+        else:
+            return 1   # upper half of range
 
-    if score <= -0.5:
+
+def compute_layer2(gex_signal, fib_signal, spot_structure_signal):
+    """Layer 2: Mechanical Structure -- average of active signals."""
+    signals = [gex_signal, fib_signal, spot_structure_signal]
+    active = [s for s in signals if s != 0]
+    score = sum(active) / len(active) if active else 0
+    return score, signals
+
+
+# ---------------------------------------------------------------------------
+# LAYER 3 -- CONVEXITY VALUATION (weight 0.25)
+# ---------------------------------------------------------------------------
+def score_symmetry(sym):
+    """Symmetry signal from convexity_state."""
+    if not sym:
+        return 0
+    state = (sym.get('convexity_state') or '').upper()
+    if state == 'CONVEXITY_CHEAP':
+        return 1
+    elif state == 'CONVEXITY_FAIR':
+        return 0
+    elif state == 'CONVEXITY_RICH':
+        return -0.5
+    elif state == 'CONVEXITY_VERY_RICH':
+        return -1
+    return 0
+
+
+def score_vix_modifier(vix):
+    """VIX regime modifier applied to confidence."""
+    if not vix:
+        return 0
+    regime = (vix.get('vol_regime_state') or '').upper()
+    if regime == 'CALM_EXPANSIONARY':
+        return 0.05
+    elif regime == 'NEUTRAL':
+        return 0
+    elif regime == 'ELEVATED_CAUTION':
+        return -0.08
+    elif regime == 'CRISIS_WATCH':
+        return -0.20
+    return 0
+
+
+def compute_layer3(symmetry_signal):
+    """Layer 3: Convexity Valuation -- symmetry signal is the score."""
+    return symmetry_signal
+
+
+# ---------------------------------------------------------------------------
+# SYNTHESIS
+# ---------------------------------------------------------------------------
+def synthesize(ticker, gex, dm, reload_data, brief, fib, sym, vix, conflict):
+    """3-layer weighted synthesis of all engine signals."""
+
+    spot_price = gex.get('spot_price') if gex else None
+
+    # --- Layer 1: Directional Thesis (0.40) ---
+    regime_signal = score_regime(brief)
+    demark_signal = score_demark(dm)
+    reload_signal = score_reload(reload_data)
+    layer1_score, layer1_signals = compute_layer1(
+        regime_signal, demark_signal, reload_signal)
+
+    # --- Layer 2: Mechanical Structure (0.35) ---
+    gex_signal = score_gex(gex)
+    fib_signal = score_fib(fib, spot_price)
+    spot_structure_signal = score_spot_structure(gex)
+    layer2_score, layer2_signals = compute_layer2(
+        gex_signal, fib_signal, spot_structure_signal)
+
+    # --- Layer 3: Convexity Valuation (0.25) ---
+    symmetry_signal = score_symmetry(sym)
+    vix_modifier = score_vix_modifier(vix)
+    layer3_score = compute_layer3(symmetry_signal)
+
+    # --- Weighted composite ---
+    composite_score = (
+        0.40 * layer1_score +
+        0.35 * layer2_score +
+        0.25 * layer3_score
+    )
+
+    # --- Scenario determination ---
+    if composite_score <= -0.25:
         primary_scenario = 'CONTINUATION_DOWN'
-        primary_probability = min(0.45 + abs(score) * 0.2, 0.75)
+        primary_probability = min(0.75, 0.45 + abs(composite_score) * 0.25)
         alt_scenario = 'CHOP_CONSOLIDATION'
-        alt_probability = round(1 - primary_probability - 0.1, 2)
+        alt_probability = round(1 - primary_probability - 0.10, 2)
         low_prob_scenario = 'SHARP_REVERSAL'
         low_prob_probability = 0.10
         overall_bias = 'BEARISH'
-    elif score >= 0.5:
+    elif composite_score >= 0.25:
         primary_scenario = 'BULLISH_CONTINUATION'
-        primary_probability = min(0.45 + score * 0.2, 0.75)
+        primary_probability = min(0.75, 0.45 + composite_score * 0.25)
         alt_scenario = 'CHOP_CONSOLIDATION'
-        alt_probability = round(1 - primary_probability - 0.1, 2)
+        alt_probability = round(1 - primary_probability - 0.10, 2)
         low_prob_scenario = 'SHARP_REVERSAL_DOWN'
         low_prob_probability = 0.10
         overall_bias = 'BULLISH'
@@ -230,15 +383,56 @@ def synthesize(gex_signal, demark_signal, reload_signal, regime_signal, ew_signa
         low_prob_probability = 0.20
         overall_bias = 'NEUTRAL'
 
-    confidence_score = round(abs(score) * 0.8 + 0.1, 2)
+    # --- Confidence score: agreement-based ---
+    all_signals = layer1_signals + layer2_signals + [layer3_score]
+    active_all = [s for s in all_signals if s != 0]
+    positives = sum(1 for s in active_all if s > 0)
+    negatives = sum(1 for s in active_all if s < 0)
+    total_active = len(active_all)
+    agreement_ratio = (max(positives, negatives) / total_active
+                       if total_active > 0 else 0)
 
+    # Conflict penalty
+    conflict_penalty = 0
+    if conflict:
+        cs = (conflict.get('conflict_state') or '').upper()
+        if cs == 'CONTRADICTED':
+            conflict_penalty = 0.15
+        elif cs == 'MIXED':
+            conflict_penalty = 0.07
+
+    confidence_score = max(0.05, min(0.95,
+        agreement_ratio * 0.8
+        - conflict_penalty
+        + vix_modifier
+    ))
+
+    # Count agreements for engines_agreement field
+    engines_total = total_active
+    if active_all and composite_score != 0:
+        sign = 1 if composite_score > 0 else -1
+        engines_agreement = sum(1 for s in active_all
+                                if (s > 0) == (sign > 0))
+    else:
+        engines_agreement = 0
+
+    # Engine signals dict for transparency
     engine_signals = {
         'gex': gex_signal,
         'demark': demark_signal,
         'reload': reload_signal,
         'regime': regime_signal,
-        'ew': ew_signal,
-        'raw_score': round(score, 2),
+        'ew': 0,
+        'fib': fib_signal,
+        'spot_structure': spot_structure_signal,
+        'symmetry': symmetry_signal,
+        'layer1_score': round(layer1_score, 2),
+        'layer2_score': round(layer2_score, 2),
+        'layer3_score': round(layer3_score, 2),
+        'composite_score': round(composite_score, 2),
+        'conflict_penalty': conflict_penalty,
+        'vix_modifier': vix_modifier,
+        'agreement_ratio': round(agreement_ratio, 2),
     }
 
     return {
@@ -249,7 +443,7 @@ def synthesize(gex_signal, demark_signal, reload_signal, regime_signal, ew_signa
         'low_prob_scenario': low_prob_scenario,
         'low_prob_probability': round(low_prob_probability, 2),
         'overall_bias': overall_bias,
-        'confidence_score': confidence_score,
+        'confidence_score': round(confidence_score, 2),
         'engines_agreement': engines_agreement,
         'engines_total': engines_total,
         'engine_signals': engine_signals,
@@ -257,7 +451,7 @@ def synthesize(gex_signal, demark_signal, reload_signal, regime_signal, ew_signa
 
 
 # ---------------------------------------------------------------------------
-# STEP 5 -- WRITE TO SUPABASE
+# WRITE TO SUPABASE
 # ---------------------------------------------------------------------------
 def delete_today_rows(ticker):
     """Delete any existing rows for this ticker from today's date."""
@@ -302,66 +496,98 @@ def write_synthesis(ticker, result):
 
 
 # ---------------------------------------------------------------------------
-# STEP 6 -- MAIN + SUMMARY
+# MAIN + SUMMARY
 # ---------------------------------------------------------------------------
 def fmt_signal(s):
     """Format a signal value for display."""
     if s is None:
         return '--'
+    if isinstance(s, float):
+        return f'{s:+.1f}'
     return f'{s:+d}'
 
 
 def main():
-    print("=" * 56)
-    print("SCENARIO SYNTHESIS ENGINE")
-    print("=" * 56)
+    print("=" * 60)
+    print("SCENARIO SYNTHESIS ENGINE -- 3-Layer Weighted Architecture")
+    print("=" * 60)
     print(f"Run: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print(f"Tickers: {', '.join(TICKERS)}")
-    print("-" * 56)
+    print(f"Weights: L1=0.40 (Directional) | L2=0.35 (Mechanical) | L3=0.25 (Convexity)")
+    print("-" * 60)
 
     for ticker in TICKERS:
-        print(f"\n[{ticker}] Fetching engine data...")
+        print(f"\n{'='*50}")
+        print(f"  {ticker}")
+        print(f"{'='*50}")
 
-        gex, dm, reload, brief = fetch_engine_data(ticker)
+        gex, dm, reload_data, brief, fib, sym, vix, conflict = \
+            fetch_engine_data(ticker)
 
         sources = []
-        if gex:   sources.append('GEX')
-        if dm:    sources.append('DeMark')
-        if reload: sources.append('Reload')
-        if brief: sources.append('Regime')
-        print(f"  [{ticker}] Sources: {', '.join(sources) if sources else 'NONE'}")
+        if gex:     sources.append('GEX')
+        if dm:      sources.append('DeMark')
+        if reload_data: sources.append('Reload')
+        if brief:   sources.append('Regime')
+        if fib:     sources.append('Fib')
+        if sym:     sources.append('Symmetry')
+        if vix:     sources.append('VIX')
+        if conflict: sources.append('Conflict')
+        print(f"  Sources: {', '.join(sources) if sources else 'NONE'}")
 
-        gex_signal = score_gex(gex)
-        demark_signal = score_demark(dm)
-        reload_signal = score_reload(reload)
-        regime_signal = score_regime(brief)
-        ew_signal = score_ew()
+        result = synthesize(ticker, gex, dm, reload_data, brief,
+                            fib, sym, vix, conflict)
 
-        result = synthesize(gex_signal, demark_signal, reload_signal,
-                            regime_signal, ew_signal)
+        es = result['engine_signals']
 
+        # Header line
+        bias = result['overall_bias']
+        comp = es['composite_score']
+        conf = int(result['confidence_score'] * 100)
+        print(f"  {ticker} | {bias} | composite: {comp:+.2f} | confidence: {conf}%")
+
+        # Layer 1
+        l1 = es['layer1_score']
+        print(f"  L1 (directional 40%): {l1:+.2f}")
+        print(f"    DeMark=[{fmt_signal(es['demark'])}]  "
+              f"Reload=[{fmt_signal(es['reload'])}]  "
+              f"Regime=[{fmt_signal(es['regime'])}]")
+
+        # Layer 2
+        l2 = es['layer2_score']
+        print(f"  L2 (mechanical 35%): {l2:+.2f}")
+        print(f"    GEX=[{fmt_signal(es['gex'])}]  "
+              f"Fib=[{fmt_signal(es['fib'])}]  "
+              f"Structure=[{fmt_signal(es['spot_structure'])}]")
+
+        # Layer 3
+        l3 = es['layer3_score']
+        print(f"  L3 (convexity 25%): {l3:+.2f}")
+        print(f"    Symmetry=[{fmt_signal(es['symmetry'])}]  "
+              f"VIX_mod=[{es['vix_modifier']:+.2f}]")
+
+        # Conflict
+        cp = es['conflict_penalty']
+        if cp > 0:
+            print(f"  Conflict penalty: -{cp:.2f}")
+        else:
+            print(f"  Conflict penalty: 0")
+
+        # Scenario
+        print(f"  Primary: {result['primary_scenario']} "
+              f"({int(result['primary_probability'] * 100)}%)")
+        print(f"  Alt:     {result['alt_scenario']} "
+              f"({int(result['alt_probability'] * 100)}%)")
+
+        # Write
         delete_today_rows(ticker)
         ok = write_synthesis(ticker, result)
-        status = '[OK]' if ok else '[FAIL]'
+        status = 'OK' if ok else 'FAIL'
+        print(f"  Write: [{status}]")
 
-        print(f"  [{ticker}] {result['overall_bias']} | "
-              f"confidence: {int(result['confidence_score'] * 100)}% {status}")
-        print(f"    Primary:  {result['primary_scenario']} "
-              f"({int(result['primary_probability'] * 100)}%)")
-        print(f"    Alt:      {result['alt_scenario']} "
-              f"({int(result['alt_probability'] * 100)}%)")
-        print(f"    Low prob: {result['low_prob_scenario']} "
-              f"({int(result['low_prob_probability'] * 100)}%)")
-        print(f"    Engines:  GEX=[{fmt_signal(gex_signal)}] "
-              f"DeMark=[{fmt_signal(demark_signal)}] "
-              f"Reload=[{fmt_signal(reload_signal)}] "
-              f"Regime=[{fmt_signal(regime_signal)}] "
-              f"EW=[{fmt_signal(ew_signal)}]")
-        print(f"    Score:    {result['engine_signals']['raw_score']}")
-
-    print("\n" + "=" * 56)
+    print("\n" + "=" * 60)
     print("SCENARIO SYNTHESIS -- RUN COMPLETE")
-    print("=" * 56)
+    print("=" * 60)
 
 
 if __name__ == '__main__':
