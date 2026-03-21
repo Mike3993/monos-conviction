@@ -322,7 +322,7 @@ function ConvexityMap({ selectedTicker, setSelectedTicker, engineData, tickerUni
                 mapped[r.ticker] = {
                   ticker: r.ticker, cluster: r.cluster || "PORTFOLIO",
                   heat_score: r.opportunity_score, recommended_structure: r.recommended_structure,
-                  governor_status: r.governor_approved === true ? "APPROVED" : r.governor_approved === false ? "BLOCKED" : "PENDING",
+                  governor_status: r.approved === true ? "APPROVED" : r.approved === false ? "PENDING" : "PENDING",
                   regime_state: r.regime_state, gamma_state: r.gamma_state,
                   vol_regime: r.vol_regime, thesis_health: r.thesis_health,
                   iv_rank: r.iv_rank, sbs: r.sbs, complexity_index: r.complexity_index,
@@ -332,6 +332,20 @@ function ConvexityMap({ selectedTicker, setSelectedTicker, engineData, tickerUni
                   flow: r.flow_data || {}, dealer_positioning: r.dealer_positioning || "—",
                   gex_phase: r.gex_phase || "—",
                 };
+              });
+              // Enrich with engineData
+              Object.keys(mapped).forEach(t => {
+                const gex = engineData?.gex?.[t];
+                const sc = engineData?.scenario?.[t];
+                const dm = engineData?.demark?.[t];
+                if (gex && !mapped[t].gamma_state) mapped[t].gamma_state = gex.gex_regime;
+                if (gex && !mapped[t].spot_price) mapped[t].spot_price = gex.spot_price;
+                if (sc && !mapped[t].regime_state) mapped[t].regime_state = (sc.primary_bias || sc.overall_bias || '').toUpperCase();
+                if (sc && !mapped[t].vol_regime) mapped[t].vol_regime = sc.vol_regime;
+                if (dm) {
+                  mapped[t].demark_count = dm.setup_count;
+                  mapped[t].demark_state = dm.signal_state || (dm.setup_count >= 7 ? 'SETUP_IN_PROGRESS' : 'IDLE');
+                }
               });
               setCells(mapped); setLoading(false); return;
             }
@@ -1310,19 +1324,61 @@ function ConvexScenarioSurface({ selectedTicker, setSelectedTicker, engineData, 
     async function load() {
       setLoading(true);
       try {
-        const sbUrl = DATA_SB_URL;
-        const sbKey = DATA_SB_KEY;
-        if (sbUrl && sbKey) {
-          console.log("[MONOS_UI FETCH]", "Scenario Surface", "scanner_scenarios", "[DATA_SUPABASE]");
-          const resp = await fetch(sbUrl+"/rest/v1/scanner_scenarios?order=price_scenario_pct.asc&limit=500",{ headers:{ apikey:sbKey,Authorization:"Bearer "+sbKey } });
-          if (resp.ok) { const data = await resp.json(); if (data && data.length > 0) { setCells(data); setLoading(false); return; } }
+        const sb = getDataSupabase();
+        if (sb) {
+          // Try scanner_scenarios first
+          const { data: scnData } = await sb.from('scanner_scenarios')
+            .select('*')
+            .eq('ticker', ticker)
+            .order('price_scenario_pct', { ascending: true })
+            .limit(500);
+          if (scnData && scnData.length > 0) { setCells(scnData); setLoading(false); return; }
+
+          // Fallback: generate grid from position_legs
+          const { data: legs } = await sb.from('position_legs')
+            .select('*, positions!inner(ticker, is_active)')
+            .eq('positions.is_active', true);
+          const tickerLegs = (legs || []).filter(l =>
+            (l.positions?.ticker || l.ticker) === ticker
+          );
+          if (tickerLegs.length > 0) {
+            const spot = engineData?.gex?.[ticker]?.spot_price || 50;
+            const grid = [];
+            const moves = [-20,-15,-10,-7,-5,-3,-1,0,1,3,5,7,10,15,20];
+            const dtes = [7,14,30,60,90,120];
+            for (const m of moves) {
+              for (const d of dtes) {
+                let pnl = 0;
+                for (const leg of tickerLegs) {
+                  const strike = Number(leg.strike) || 0;
+                  const qty = Number(leg.quantity) || 1;
+                  const entry = Number(leg.entry_price) || 0;
+                  const futurePrice = spot * (1 + m/100);
+                  const lt = (leg.leg_type || '').toUpperCase();
+                  let intrinsic = 0;
+                  if (lt.includes('CALL')) intrinsic = Math.max(0, futurePrice - strike);
+                  else if (lt.includes('PUT')) intrinsic = Math.max(0, strike - futurePrice);
+                  const isShort = lt.includes('SHORT');
+                  const legPnl = isShort
+                    ? (entry - intrinsic) * qty * 100
+                    : (intrinsic - entry) * qty * 100;
+                  pnl += legPnl;
+                }
+                const cost = tickerLegs.reduce((s, l) => s + Math.abs(Number(l.entry_price)||0) * (Number(l.quantity)||1) * 100, 0) || 1;
+                grid.push({ ticker, price_scenario_pct: m, days_to_expiration: d, expected_pnl: Math.round(pnl), pnl_pct: +((pnl / cost) * 100).toFixed(1) });
+              }
+            }
+            setCells(grid);
+            setLoading(false);
+            return;
+          }
         }
-      } catch(e) {}
+      } catch(e) { console.warn('[Scenarios] load failed:', e); }
       setCells(generateScenarioMock());
       setLoading(false);
     }
     load();
-  }, []);
+  }, [ticker]);
 
   const dtes = useMemo(() => [...new Set(cells.map(c => c.days_to_expiration))].sort((a,b)=>a-b), [cells]);
   const moves = useMemo(() => [...new Set(cells.map(c => c.price_scenario_pct))].sort((a,b)=>a-b), [cells]);
@@ -1446,6 +1502,7 @@ function generateFlowMock() {
 
 function OptionsFlowTab({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [rows, setRows] = useState([]);
+  const [prints, setPrints] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
 
@@ -1455,50 +1512,35 @@ function OptionsFlowTab({ selectedTicker, setSelectedTicker, engineData, tickerU
       try {
         const sb = getDataSupabase();
         if (sb) {
-          const [snRes, scRes] = await Promise.all([
-            sb.from('scanner_candidates')
-              .select('*')
-              .in('cluster', ['METALS'])
-              .order('opportunity_score', { ascending: false })
-              .limit(10),
-            sb.from('scenario_synthesis')
+          const [snapRes, printsRes] = await Promise.all([
+            sb.from('flow_snapshots')
               .select('*')
               .order('run_ts', { ascending: false })
-              .limit(20)
+              .limit(20),
+            sb.from('flow_prints')
+              .select('*')
+              .eq('is_unusual', true)
+              .order('notional', { ascending: false })
+              .limit(50)
           ]);
-          const scMap = {};
-          (scRes.data || []).forEach(r => {
-            if (!scMap[r.ticker]) scMap[r.ticker] = r;
+          const latestByTicker = {};
+          (snapRes.data || []).forEach(r => {
+            if (!latestByTicker[r.ticker]) latestByTicker[r.ticker] = r;
           });
-          if (snRes.data && snRes.data.length > 0) {
-            const mapped = snRes.data.map(r => {
-              const sc = scMap[r.ticker] || {};
-              const isBearish = sc.overall_bias === 'BEARISH';
-              const isBullish = sc.overall_bias === 'BULLISH';
-              return {
-                ticker: r.ticker,
-                call_volume: isBullish
-                  ? Math.round(r.opportunity_score * 1000)
-                  : Math.round(r.opportunity_score * 300),
-                put_volume: isBearish
-                  ? Math.round(r.opportunity_score * 1000)
-                  : Math.round(r.opportunity_score * 300),
-                call_put_ratio: isBullish ? 0.62
-                  : isBearish ? 1.42 : 1.00,
-                largest_trade: {
-                  type: isBearish ? 'PUT' : 'CALL',
-                  strike: r.spot_price
-                    ? Math.round(r.spot_price * 0.95)
-                    : 0,
-                  size: r.demark_count || 0,
-                  premium: '$' + (r.opportunity_score * 100).toFixed(0)
-                },
-                flow_signal: isBullish ? 'BULLISH_SWEEP'
-                  : isBearish ? 'BEARISH_SWEEP'
-                  : 'NEUTRAL'
-              };
-            });
+          if (Object.keys(latestByTicker).length > 0) {
+            const mapped = Object.values(latestByTicker).map(r => ({
+              ticker: r.ticker,
+              call_volume: r.call_volume || 0,
+              put_volume: r.put_volume || 0,
+              call_put_ratio: r.call_put_ratio || 1,
+              largest_trade: r.largest_trade || null,
+              flow_signal: r.flow_signal || 'NEUTRAL',
+              net_notional: r.net_notional || 0,
+              conviction_score: r.conviction_score || 0,
+              source: 'LIVE'
+            }));
             setRows(mapped);
+            setPrints(printsRes.data || []);
             setIsLive(true);
             setLoading(false);
             return;
@@ -1508,6 +1550,7 @@ function OptionsFlowTab({ selectedTicker, setSelectedTicker, engineData, tickerU
         console.warn('[Flow] fetch failed:', e);
       }
       setRows(generateFlowMock());
+      setPrints([]);
       setIsLive(false);
       setLoading(false);
     }
@@ -1517,20 +1560,36 @@ function OptionsFlowTab({ selectedTicker, setSelectedTicker, engineData, tickerU
   const displayRows = selectedTicker
     ? rows.filter(r => r.ticker === selectedTicker)
     : rows;
+  const displayPrints = selectedTicker
+    ? prints.filter(p => p.ticker === selectedTicker)
+    : prints;
+
+  const fmtNotional = (v) => {
+    if (v == null) return '--';
+    const abs = Math.abs(v);
+    if (abs >= 1_000_000) return (v < 0 ? '-' : '') + '$' + (abs / 1_000_000).toFixed(1) + 'M';
+    if (abs >= 1_000) return (v < 0 ? '-' : '') + '$' + (abs / 1_000).toFixed(0) + 'K';
+    return '$' + v.toFixed(0);
+  };
+
+  const printTypeBadge = (pt) => {
+    const colors = { MEGA_BLOCK:'#a855f7', BLOCK:'#3b82f6', SWEEP:'#f59e0b', LARGE:'#6b7280' };
+    const c = colors[pt] || COLORS.textDim;
+    return { fontSize:8,fontWeight:700,padding:'2px 7px',borderRadius:3,background:c+'18',color:c,letterSpacing:0.5 };
+  };
 
   const thStyle = { fontSize:9,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:COLORS.textDim,padding:"8px 10px",borderBottom:`1px solid ${COLORS.border}`,textAlign:"left" };
   const tdStyle = { padding:"8px 10px",borderBottom:`1px solid ${COLORS.border}08`,fontSize:12,fontFamily:"'JetBrains Mono',monospace" };
 
+  const srcLive = rows.length > 0 && rows[0]?.source === 'LIVE';
+
   return (
     <div>
       <Lbl>Options Flow -- Volume & Sweep Detection</Lbl>
-      <div style={{ fontSize:9, color:'#5a5e72', marginBottom:8, fontFamily:"'JetBrains Mono', monospace" }}>
-        Synthetic flow derived from PIE engine outputs {'\u00B7'} Connect Unusual Whales API for real flow data
-      </div>
       <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:12 }}>
-        <div style={{ width:8,height:8,borderRadius:'50%',background:isLive?'#22c55e':'#5a5e72',boxShadow:isLive?'0 0 6px rgba(34,197,94,0.5)':'none' }} />
-        <span style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:isLive?'#22c55e':'#5a5e72' }}>
-          {isLive ? 'Synthetic \u00B7 PIE-derived' : 'Mock data'}
+        <div style={{ width:8,height:8,borderRadius:'50%',background:srcLive?'#22c55e':'#5a5e72',boxShadow:srcLive?'0 0 6px rgba(34,197,94,0.5)':'none' }} />
+        <span style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:srcLive?'#22c55e':'#5a5e72' }}>
+          {srcLive ? '\u25CF Live \u00B7 Unusual Whales' : '\u25CC Synthetic \u00B7 PIE-derived'}
         </span>
       </div>
       {/* Bar chart */}
@@ -1549,25 +1608,38 @@ function OptionsFlowTab({ selectedTicker, setSelectedTicker, engineData, tickerU
           </ResponsiveContainer>
         </div>
       </Card>
-      {/* Table */}
+      {/* Flow summary table */}
       {loading ? <Card style={{ textAlign:"center",padding:40 }}><Mono s={14} c={COLORS.textDim}>Loading...</Mono></Card> : (
         <Card style={{ padding:0,overflow:"hidden" }}>
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead><tr>
-                <th style={thStyle}>TICKER</th><th style={thStyle}>CALL VOL</th><th style={thStyle}>PUT VOL</th><th style={thStyle}>C/P RATIO</th><th style={thStyle}>LARGEST TRADE</th><th style={thStyle}>FLOW SIGNAL</th>
+                <th style={thStyle}>TICKER</th><th style={thStyle}>CALL VOL</th><th style={thStyle}>PUT VOL</th><th style={thStyle}>C/P RATIO</th><th style={thStyle}>LARGEST TRADE</th><th style={thStyle}>FLOW SIGNAL</th><th style={thStyle}>NET NOTIONAL</th><th style={thStyle}>CONVICTION</th>
               </tr></thead>
               <tbody>
                 {displayRows.map(r => {
-                  const sigClr = r.flow_signal==="BULLISH_SWEEP"?COLORS.greenDim:r.flow_signal==="BEARISH_SWEEP"?COLORS.redDim:COLORS.textDim;
+                  const sigClr = (r.flow_signal||'').indexOf('BULLISH')>=0?COLORS.greenDim:(r.flow_signal||'').indexOf('BEARISH')>=0?COLORS.redDim:COLORS.textDim;
+                  const lt = typeof r.largest_trade === 'string' ? JSON.parse(r.largest_trade) : r.largest_trade;
+                  const nn = r.net_notional || 0;
+                  const nnClr = nn > 0 ? COLORS.greenDim : nn < 0 ? COLORS.redDim : COLORS.textDim;
+                  const conv = r.conviction_score || 0;
                   return (
                     <tr key={r.ticker}>
                       <td style={{ ...tdStyle,fontWeight:700,color:COLORS.text }}>{r.ticker}</td>
                       <td style={{ ...tdStyle,color:COLORS.greenDim }}>{(r.call_volume||0).toLocaleString()}</td>
                       <td style={{ ...tdStyle,color:COLORS.redDim }}>{(r.put_volume||0).toLocaleString()}</td>
-                      <td style={{ ...tdStyle,fontWeight:700,color:r.call_put_ratio<0.7?COLORS.greenDim:r.call_put_ratio>1.2?COLORS.redDim:COLORS.amber }}>{r.call_put_ratio}</td>
-                      <td style={{ ...tdStyle,fontSize:10 }}>{r.largest_trade ? `${r.largest_trade.type} $${r.largest_trade.strike} x ${r.largest_trade.size} (${r.largest_trade.premium})` : "--"}</td>
+                      <td style={{ ...tdStyle,fontWeight:700,color:r.call_put_ratio<0.7?COLORS.greenDim:r.call_put_ratio>1.2?COLORS.redDim:COLORS.amber }}>{Number(r.call_put_ratio).toFixed(2)}</td>
+                      <td style={{ ...tdStyle,fontSize:10 }}>{lt ? `${(lt.type||'').toUpperCase()} $${lt.strike} ${lt.expiry_window||''}` : "--"}</td>
                       <td style={tdStyle}><Badge text={r.flow_signal||"--"} color={sigClr} /></td>
+                      <td style={{ ...tdStyle,fontWeight:700,color:nnClr }}>{fmtNotional(nn)}</td>
+                      <td style={tdStyle}>
+                        <div style={{ display:'flex',alignItems:'center',gap:6 }}>
+                          <div style={{ width:50,height:6,borderRadius:3,background:COLORS.border,overflow:'hidden' }}>
+                            <div style={{ width:Math.min(100,conv)+'%',height:'100%',borderRadius:3,background:COLORS.amber }} />
+                          </div>
+                          <span style={{ fontSize:10,color:COLORS.amber,fontWeight:700 }}>{conv}</span>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -1576,6 +1648,43 @@ function OptionsFlowTab({ selectedTicker, setSelectedTicker, engineData, tickerU
           </div>
         </Card>
       )}
+
+      {/* Unusual Prints Tape */}
+      <div style={{ marginTop:20 }}>
+        <div style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:13,fontWeight:700,color:COLORS.amber,letterSpacing:1,marginBottom:4 }}>UNUSUAL PRINTS TAPE</div>
+        <div style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:'#5a5e72',marginBottom:10 }}>Filtered: vol/OI {'\u2265'} 1.5x {'\u00B7'} notional {'\u2265'} $50K</div>
+        {displayPrints.length > 0 ? (
+          <Card style={{ padding:0,overflow:'hidden' }}>
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%',borderCollapse:'collapse' }}>
+                <thead><tr>
+                  <th style={thStyle}>TICKER</th><th style={thStyle}>SIDE</th><th style={thStyle}>STRIKE</th><th style={thStyle}>EXPIRY</th><th style={thStyle}>VOL/OI</th><th style={thStyle}>NOTIONAL</th><th style={thStyle}>PRINT TYPE</th>
+                </tr></thead>
+                <tbody>
+                  {displayPrints.slice(0, 20).map((p, i) => {
+                    const sideClr = p.side === 'BULLISH' ? COLORS.greenDim : p.side === 'BEARISH' ? COLORS.redDim : COLORS.textDim;
+                    return (
+                      <tr key={p.id || i}>
+                        <td style={{ ...tdStyle,fontWeight:700,color:COLORS.text }}>{p.ticker}</td>
+                        <td style={{ ...tdStyle,fontWeight:700,color:sideClr }}>{p.side}</td>
+                        <td style={{ ...tdStyle,color:COLORS.amber }}>${p.strike}</td>
+                        <td style={{ ...tdStyle,fontSize:10,color:COLORS.textDim }}>{p.expiry_window || '--'}</td>
+                        <td style={{ ...tdStyle,fontWeight:700,color:p.vol_oi_ratio>=3?COLORS.amber:COLORS.text }}>{p.vol_oi_ratio ? Number(p.vol_oi_ratio).toFixed(1)+'x' : '--'}</td>
+                        <td style={{ ...tdStyle,color:COLORS.text }}>{fmtNotional(p.notional)}</td>
+                        <td style={tdStyle}><span style={printTypeBadge(p.print_type)}>{(p.print_type||'').replace(/_/g,' ')}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        ) : (
+          <div style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:'#5a5e72',padding:'16px 0' }}>
+            No unusual prints today -- run flow_engine.py or connect Unusual Whales API
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1879,30 +1988,55 @@ function generateVolSurfaceMock() {
   }));
 }
 
-function VolSurfaceTab() {
+function VolSurfaceTab({ selectedTicker: propTicker, setSelectedTicker: propSetTicker, engineData, tickerUniverse }) {
   const [rows, setRows] = useState([]);
+  const [symData, setSymData] = React.useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTicker, setSelectedTicker] = useState("SLV");
+  const [localTicker, setLocalTicker] = useState("SLV");
+  const selectedTicker = propTicker || localTicker;
+  const setSelectedTicker = propSetTicker || setLocalTicker;
   const plotRef = useRef(null);
 
-  // Signals state
-  const SIG_TICKERS = ['SLV','GLD','GDX','SILJ','SIL'];
-  const [sigData, setSigData] = useState({ gex: {}, demark: {}, fib: {}, scenario: {} });
-  const [sigLoading, setSigLoading] = useState(true);
+  // Use engineData if available, otherwise fall back to independent fetches
+  const SIG_TICKERS = tickerUniverse
+    ? [...new Set([...(tickerUniverse.position || []), ...(tickerUniverse.watchlist || []), ...(tickerUniverse.research || [])])]
+    : ['SLV','GLD','GDX','SILJ','SIL','SPY','QQQ','TLT'];
+  const sigDataBase = engineData
+    ? { gex: engineData.gex || {}, demark: engineData.demark || {}, fib: engineData.fib || {}, scenario: engineData.scenario || {} }
+    : null;
+  const [sigLoading, setSigLoading] = useState(!engineData);
+  const [fallbackSig, setFallbackSig] = useState(null);
 
-  // Load vol surface data
+  // Load vol surface data + symmetry snapshots
   useEffect(() => {
     setLoading(true);
     const sb = getDataSupabase();
     if (sb) {
-      sb.from('vol_surface')
+      // Fetch symmetry_snapshots (live IV-RV data)
+      sb.from('symmetry_snapshots')
         .select('*')
-        .order('ticker', { ascending: true })
-        .limit(50)
+        .order('run_ts', { ascending: false })
+        .limit(30)
         .then(({ data }) => {
-          if (data && data.length > 0) { setRows(data); }
-          else { setRows(generateVolSurfaceMock()); }
-          setLoading(false);
+          const latest = {};
+          (data || []).forEach(r => { if (!latest[r.ticker]) latest[r.ticker] = r; });
+          const symRows = Object.values(latest);
+          setSymData(symRows);
+          // Use symmetry data as primary rows if available, else fall back to vol_surface / mock
+          if (symRows.length > 0) {
+            setRows(symRows);
+            setLoading(false);
+          } else {
+            sb.from('vol_surface')
+              .select('*')
+              .order('ticker', { ascending: true })
+              .limit(50)
+              .then(({ data: vsData }) => {
+                if (vsData && vsData.length > 0) { setRows(vsData); }
+                else { setRows(generateVolSurfaceMock()); }
+                setLoading(false);
+              });
+          }
         });
     } else {
       setRows(generateVolSurfaceMock());
@@ -1910,8 +2044,9 @@ function VolSurfaceTab() {
     }
   }, []);
 
-  // Load PIE engine signals
+  // Only fetch signals independently if engineData not provided
   useEffect(() => {
+    if (engineData) { setSigLoading(false); return; }
     setSigLoading(true);
     const sb = getDataSupabase();
     if (!sb) { setSigLoading(false); return; }
@@ -1928,7 +2063,7 @@ function VolSurfaceTab() {
     sb.from('gex_snapshots').select('*')
       .order('run_ts', { ascending: false }).limit(20)
       .then(({ data }) => {
-        setSigData(prev => ({ ...prev, gex: toMap(data) }));
+        setFallbackSig(prev => ({ ...(prev||{}), gex: toMap(data) }));
         done();
       });
 
@@ -1936,32 +2071,34 @@ function VolSurfaceTab() {
       .eq('timeframe', 'daily')
       .order('run_ts', { ascending: false }).limit(20)
       .then(({ data }) => {
-        setSigData(prev => ({ ...prev, demark: toMap(data) }));
+        setFallbackSig(prev => ({ ...(prev||{}), demark: toMap(data) }));
         done();
       });
 
     sb.from('fib_levels').select('*')
       .order('run_ts', { ascending: false }).limit(10)
       .then(({ data }) => {
-        setSigData(prev => ({ ...prev, fib: toMap(data) }));
+        setFallbackSig(prev => ({ ...(prev||{}), fib: toMap(data) }));
         done();
       });
 
     sb.from('scenario_synthesis').select('*')
       .order('run_ts', { ascending: false }).limit(20)
       .then(({ data }) => {
-        setSigData(prev => ({ ...prev, scenario: toMap(data) }));
+        setFallbackSig(prev => ({ ...(prev||{}), scenario: toMap(data) }));
         done();
       });
   }, []);
+
+  const sigData = sigDataBase || fallbackSig || { gex: {}, demark: {}, fib: {}, scenario: {} };
 
   // Generate 3D surface for selected ticker
   useEffect(() => {
     if (!plotRef.current || typeof window.Plotly === "undefined") return;
     const strikes = [];
     const expirations = [7,14,30,45,60,90,120,180];
-    const row = rows.find(r => r.ticker === selectedTicker) || { hv20:25,hv60:22 };
-    const baseIV = row.hv20 || 25;
+    const row = rows.find(r => r.ticker === selectedTicker) || { hv20:25,hv60:22,atm_iv:null };
+    const baseIV = row.atm_iv || row.hv20 || 25;
     for (let s = -10; s <= 10; s++) strikes.push(s);
     const z = expirations.map(exp => {
       return strikes.map(s => {
@@ -2037,37 +2174,59 @@ function VolSurfaceTab() {
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead><tr>
-                <th style={volThStyle}>TICKER</th><th style={volThStyle}>IV RANK</th><th style={volThStyle}>SKEW SLOPE</th><th style={volThStyle}>TERM STRUCTURE</th><th style={volThStyle}>IV-RV GAP</th><th style={volThStyle}>HV20</th><th style={volThStyle}>HV60</th>
+                <th style={volThStyle}>TICKER</th><th style={volThStyle}>ATM IV</th><th style={volThStyle}>SKEW</th><th style={volThStyle}>TERM STRUCT</th><th style={volThStyle}>IV-RV GAP</th><th style={volThStyle}>HV20</th><th style={volThStyle}>STRADDLE</th><th style={volThStyle}>CONVEXITY</th>
               </tr></thead>
               <tbody>
-                {rows.map(r => (
+                {rows.map(r => {
+                  const isLive = symData.length > 0 && r.symmetry_score != null;
+                  const ivRvGap = r.iv_rv_gap_20d != null ? r.iv_rv_gap_20d : r.iv_rv_gap;
+                  const ivRvColor = ivRvGap != null ? (ivRvGap < 0 ? COLORS.greenDim : ivRvGap > 6 ? COLORS.redDim : COLORS.amber) : COLORS.textDim;
+                  const ivRvText = ivRvGap != null ? (ivRvGap > 0 ? '+' : '') + Number(ivRvGap).toFixed(1) + '%' : '--';
+                  const atmIv = r.atm_iv != null ? Number(r.atm_iv).toFixed(1) + '%' : (r.iv_rank != null ? r.iv_rank : '--');
+                  const skewVal = r.skew_slope != null ? (r.skew_slope > 0 ? '+' : '') + Number(r.skew_slope).toFixed(1) : '--';
+                  const skewColor = r.skew_slope != null ? (r.skew_slope > 20 ? COLORS.redDim : r.skew_slope < 0 ? COLORS.greenDim : COLORS.amber) : COLORS.textDim;
+                  const hv20 = r.hv20 != null ? Number(r.hv20).toFixed(1) + '%' : '--';
+                  const straddle = r.atm_straddle_cost != null ? '$' + Number(r.atm_straddle_cost).toFixed(2) + (r.implied_move_pct != null ? ' (' + Number(r.implied_move_pct).toFixed(1) + '%)' : '') : '--';
+                  const cs = r.convexity_state || '';
+                  const convLabel = cs === 'CONVEXITY_CHEAP' ? 'CHEAP' : cs === 'CONVEXITY_FAIR' ? 'FAIR' : cs === 'CONVEXITY_RICH' ? 'RICH' : cs === 'CONVEXITY_VERY_RICH' ? 'V.RICH' : '--';
+                  const convColor = cs === 'CONVEXITY_CHEAP' ? '#22c55e' : cs === 'CONVEXITY_FAIR' ? '#94a3b8' : cs === 'CONVEXITY_RICH' ? '#f59e0b' : cs === 'CONVEXITY_VERY_RICH' ? '#ef4444' : '#5a5e72';
+                  const convBg = cs === 'CONVEXITY_CHEAP' ? 'rgba(34,197,94,0.15)' : cs === 'CONVEXITY_FAIR' ? 'rgba(148,163,184,0.1)' : cs === 'CONVEXITY_RICH' ? 'rgba(245,158,11,0.15)' : cs === 'CONVEXITY_VERY_RICH' ? 'rgba(239,68,68,0.15)' : 'transparent';
+                  return (
                   <tr key={r.ticker} onClick={() => setSelectedTicker(r.ticker)} style={{ cursor:"pointer",background:r.ticker===selectedTicker?COLORS.accent+'08':"transparent" }}
                     onMouseEnter={e => { if(r.ticker!==selectedTicker) e.currentTarget.style.background=COLORS.bgHover; }} onMouseLeave={e => { if(r.ticker!==selectedTicker) e.currentTarget.style.background="transparent"; }}>
                     <td style={{ ...volTdStyle,fontWeight:700,color:COLORS.text }}>{r.ticker}</td>
+                    <td style={{ ...volTdStyle,color:COLORS.text,fontWeight:600 }}>{atmIv}</td>
+                    <td style={{ ...volTdStyle,color:skewColor }}>{skewVal}</td>
+                    <td style={volTdStyle}><Badge text={r.term_structure || '--'} color={r.term_structure==="BACKWARDATION"?COLORS.orange:r.term_structure==="CONTANGO"?COLORS.blue:COLORS.textDim} /></td>
+                    <td style={{ ...volTdStyle,color:ivRvColor,fontWeight:700 }}>{ivRvText}</td>
+                    <td style={{ ...volTdStyle,color:COLORS.text }}>{hv20}</td>
+                    <td style={{ ...volTdStyle,color:COLORS.textDim,fontSize:11 }}>{straddle}</td>
                     <td style={volTdStyle}>
-                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                        <div style={{ width:50,height:6,background:COLORS.bgHover,borderRadius:3,overflow:"hidden" }}>
-                          <div style={{ width:(r.iv_rank||0)+'%',height:"100%",background:r.iv_rank<=25?COLORS.greenDim:r.iv_rank>=75?COLORS.redDim:COLORS.amber,borderRadius:3 }} />
-                        </div>
-                        <Mono s={11} c={r.iv_rank<=25?COLORS.greenDim:r.iv_rank>=75?COLORS.redDim:COLORS.amber}>{r.iv_rank}</Mono>
-                      </div>
+                      <span style={{ display:'inline-block',fontFamily:"'JetBrains Mono',monospace",fontSize:9,fontWeight:700,padding:'2px 8px',borderRadius:999,color:convColor,background:convBg,letterSpacing:0.5 }}>{convLabel}</span>
                     </td>
-                    <td style={{ ...volTdStyle,color:r.skew_slope<0?COLORS.greenDim:COLORS.redDim }}>{r.skew_slope>0?"+":""}{r.skew_slope}</td>
-                    <td style={volTdStyle}><Badge text={r.term_structure} color={r.term_structure==="BACKWARDATION"?COLORS.orange:r.term_structure==="CONTANGO"?COLORS.blue:COLORS.textDim} /></td>
-                    <td style={{ ...volTdStyle,color:r.iv_rv_gap<0?COLORS.greenDim:COLORS.redDim,fontWeight:700 }}>{r.iv_rv_gap>0?"+":""}{r.iv_rv_gap}%</td>
-                    <td style={{ ...volTdStyle,color:COLORS.text }}>{r.hv20}%</td>
-                    <td style={{ ...volTdStyle,color:COLORS.text }}>{r.hv60}%</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </Card>
       )}
 
-      {/* Vol surface note */}
-      <div style={{ padding: '8px 16px', fontSize: 9, color: '#3a3e52', fontFamily: "'JetBrains Mono', monospace", letterSpacing: 1, borderTop: '1px solid rgba(255,255,255,0.04)', marginBottom: 16 }}>
-        VOL SURFACE -- theoretical IV grid {'\u00B7'} mock data {'\u00B7'} connect live IV feed to populate
+      {/* Vol surface data source */}
+      <div style={{ padding: '8px 16px', fontSize: 9, fontFamily: "'JetBrains Mono', monospace", letterSpacing: 1, borderTop: '1px solid rgba(255,255,255,0.04)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {symData.length > 0 ? (
+          <React.Fragment>
+            <span style={{ color: '#22c55e' }}>{'\u25CF'}</span>
+            <span style={{ color: '#22c55e' }}>Live {'\u00B7'} Trading Volatility + Polygon</span>
+            <span style={{ color: '#3a3e52', marginLeft: 8 }}>{symData.length} tickers {'\u00B7'} symmetry_snapshots</span>
+          </React.Fragment>
+        ) : (
+          <React.Fragment>
+            <span style={{ color: '#5a5e72' }}>{'\u25CC'}</span>
+            <span style={{ color: '#5a5e72' }}>Mock data {'\u00B7'} run symmetry_engine.py to populate</span>
+          </React.Fragment>
+        )}
       </div>
 
       {/* ═══ DIVIDER ═══ */}
@@ -3407,7 +3566,7 @@ function MSALensTab({ selectedTicker, setSelectedTicker, engineData, tickerUnive
 
   const positionTickers = selectedTicker
     ? [selectedTicker]
-    : ['SLV','GLD','GDX','SIL','SILJ'];
+    : [...(tickerUniverse?.position || []), ...(tickerUniverse?.watchlist || [])];
   const positions = positionTickers.map(ticker => {
     const sc = engineData?.scenario?.[ticker];
     const dm = engineData?.demark?.[ticker];
@@ -3587,10 +3746,11 @@ function MSALensTab({ selectedTicker, setSelectedTicker, engineData, tickerUnive
 }
 
 // ═══ TAB: TRADE IDEAS — Pipeline signals from convexity_signals ═══
-function TradeIdeasTab() {
+function TradeIdeasTab({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) {
   const [scenMap, setScenMap] = React.useState({});
   const [scanner, setScanner] = React.useState([]);
   const [reloadRows, setReloadRows] = React.useState([]);
+  const [alerts, setAlerts] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
@@ -3598,7 +3758,7 @@ function TradeIdeasTab() {
     const sb = getDataSupabase();
     if (!sb) { setLoading(false); return; }
 
-    let pending = 3;
+    let pending = 4;
     const done = () => { pending--; if (pending <= 0) setLoading(false); };
 
     sb.from('scenario_synthesis').select('*')
@@ -3623,6 +3783,14 @@ function TradeIdeasTab() {
         const m = {};
         (data || []).forEach(r => { if (!m[r.ticker]) m[r.ticker] = r; });
         setReloadRows(Object.values(m));
+        done();
+      });
+
+    sb.from('monitor_alerts').select('*')
+      .eq('resolved', false)
+      .order('run_ts', { ascending: false }).limit(20)
+      .then(({ data }) => {
+        setAlerts(data || []);
         done();
       });
   }, []);
@@ -3698,8 +3866,64 @@ function TradeIdeasTab() {
   const scenTickers = Object.keys(scenMap);
   const top5 = scanner.slice(0, 5);
 
+  const criticalAlerts = alerts.filter(a => a.severity === 'CRITICAL');
+  const warningAlerts = alerts.filter(a => a.severity === 'WARNING' || a.severity === 'HIGH');
+  const infoAlerts = alerts.filter(a => a.severity === 'INFO');
+  const allActiveAlerts = [...criticalAlerts, ...warningAlerts, ...infoAlerts];
+
+  const sevColor = (sev) => sev === 'CRITICAL' ? COLORS.redDim : sev === 'HIGH' ? '#f97316' : sev === 'WARNING' ? COLORS.amber : COLORS.textDim;
+  const sevIcon = (sev) => sev === 'CRITICAL' ? '\u2717' : sev === 'HIGH' ? '!' : sev === 'WARNING' ? '\u26A0' : '\u25CB';
+
+  const dismissAlert = (alertId) => {
+    const sb = getDataSupabase();
+    if (!sb) return;
+    sb.from('monitor_alerts')
+      .update({ resolved: true })
+      .eq('id', alertId)
+      .then(() => {
+        setAlerts(prev => prev.filter(a => a.id !== alertId));
+      });
+  };
+
   return (
     <div>
+      {/* ═══ SYSTEM HEALTH ═══ */}
+      {allActiveAlerts.length === 0 ? (
+        <div style={{ ...mono, fontSize: 10, color: '#22c55e', padding: '6px 12px', marginBottom: 16, borderRadius: 4, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)' }}>
+          {'\u25CF'} All systems nominal
+        </div>
+      ) : (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#f59e0b', letterSpacing: 1, marginBottom: 10 }}>SYSTEM HEALTH</div>
+          {allActiveAlerts.map(a => {
+            const sc = sevColor(a.severity);
+            return (
+              <div key={a.id} style={{ background: COLORS.bgCard, border: '1px solid ' + COLORS.border, borderRadius: 6, borderLeft: '4px solid ' + sc, padding: '8px 12px', marginBottom: 6, position: 'relative' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                      <span style={{ ...mono, fontSize: 12, color: sc, fontWeight: 700 }}>{sevIcon(a.severity)}</span>
+                      <span style={{ ...mono, fontSize: 9, color: sc, fontWeight: 700, letterSpacing: 1 }}>{a.severity}</span>
+                      <span style={{ ...mono, fontSize: 10, color: COLORS.textDim }}>[{a.alert_code}]</span>
+                      {a.ticker && <span style={{ ...mono, fontSize: 10, fontWeight: 700, color: COLORS.amber }}>{a.ticker}</span>}
+                    </div>
+                    <div style={{ ...mono, fontSize: 11, color: COLORS.text, fontWeight: 600, marginBottom: 2 }}>{a.title}</div>
+                    <div style={{ ...mono, fontSize: 10, color: '#5a5e72', lineHeight: 1.4 }}>{a.body}</div>
+                    {a.action && <div style={{ ...mono, fontSize: 10, color: COLORS.amber, fontStyle: 'italic', marginTop: 3 }}>{'\u2192'} {a.action}</div>}
+                  </div>
+                  <span onClick={() => dismissAlert(a.id)} style={{ ...mono, fontSize: 9, color: COLORS.textDim, cursor: 'pointer', padding: '2px 8px', borderRadius: 3, border: '1px solid ' + COLORS.border, marginLeft: 8, flexShrink: 0, whiteSpace: 'nowrap' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = COLORS.text; e.currentTarget.style.borderColor = COLORS.text; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = COLORS.textDim; e.currentTarget.style.borderColor = COLORS.border; }}>Dismiss</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Divider after health panel */}
+      {allActiveAlerts.length > 0 && <div style={{ borderTop: '1px solid ' + COLORS.border, margin: '0 0 20px 0' }} />}
+
       {/* ═══ SECTION 1 — POSITION ACTIONS ═══ */}
       <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: '#f59e0b', letterSpacing: 1, marginBottom: 12 }}>POSITION ACTIONS</div>
       {reloadRows.length > 0 ? (
@@ -4308,7 +4532,7 @@ const OperatorCard = ({ selectedTicker, setSelectedTicker, engineData, tickerUni
 // GUARDIAN PANEL — Position monitoring / morning checklist
 // ═══════════════════════════════════════════════════════════════════
 
-const GuardianPanel = () => {
+const GuardianPanel = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) => {
   const [alertGroups, setAlertGroups] = React.useState([]);
   const [queueGroups, setQueueGroups] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -4902,7 +5126,7 @@ const REASON_CODES = [
   'HEDGE_DECAY','TIME_BASED','EMOTIONAL','SYSTEM_SIGNAL'
 ];
 
-const LedgerPanel = () => {
+const LedgerPanel = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) => {
   const [tickers, setTickers] = React.useState([]);
   const [entries, setEntries] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -5739,7 +5963,7 @@ const SLV_DEFAULTS = {
   invalidation_price: 34.02, wave1_top: 34.02
 };
 
-const PIEConfigTab = () => {
+const PIEConfigTab = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) => {
   const [prefillReady, setPrefillReady] = React.useState(false);
 
   // ── Elliott Wave state (pre-filled on mount) ──

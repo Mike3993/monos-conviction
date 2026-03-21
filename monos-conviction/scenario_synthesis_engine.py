@@ -38,7 +38,26 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     print("[FAIL] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
     sys.exit(1)
 
-TICKERS = ['SLV', 'GLD', 'GDX', 'SILJ', 'SIL']
+_DEFAULT_TICKERS = ['SLV', 'GLD', 'GDX', 'SILJ', 'SIL']
+
+def _load_universe():
+    """Load tickers from ticker_universe table, fall back to defaults."""
+    try:
+        r = requests.get(
+            SUPABASE_URL + "/rest/v1/ticker_universe?select=ticker&order=ticker.asc",
+            headers={"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY},
+            timeout=10
+        )
+        if r.status_code == 200:
+            tickers = [row["ticker"] for row in r.json() if row.get("ticker")]
+            if tickers:
+                print(f"[scenario] Loaded {len(tickers)} tickers from ticker_universe")
+                return tickers
+    except Exception as e:
+        print(f"[scenario] ticker_universe fetch failed: {e}")
+    return _DEFAULT_TICKERS
+
+TICKERS = _load_universe()
 HEADERS_SB = {
     'apikey': SUPABASE_KEY,
     'Authorization': f'Bearer {SUPABASE_KEY}',

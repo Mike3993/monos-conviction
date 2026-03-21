@@ -63,7 +63,27 @@ POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "")
 
 DRY_RUN = "--dry" in sys.argv
 
-TICKERS = ["SLV", "GLD", "GDX", "SILJ", "SIL"]
+_DEFAULT_TICKERS = ["SLV", "GLD", "GDX", "SILJ", "SIL"]
+
+def _load_universe():
+    """Load tickers from ticker_universe table, fall back to defaults."""
+    try:
+        import requests as _rq
+        r = _rq.get(
+            SUPABASE_URL + "/rest/v1/ticker_universe?select=ticker&order=ticker.asc",
+            headers={"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY},
+            timeout=10
+        )
+        if r.status_code == 200:
+            tickers = [row["ticker"] for row in r.json() if row.get("ticker")]
+            if tickers:
+                print(f"[gex] Loaded {len(tickers)} tickers from ticker_universe")
+                return tickers
+    except Exception as e:
+        print(f"[gex] ticker_universe fetch failed: {e}")
+    return _DEFAULT_TICKERS
+
+TICKERS = _load_universe()
 
 # Max contracts to snapshot per ticker (API budget control)
 # 100 contracts ~ 50s per ticker, 5 tickers ~ 4 min total

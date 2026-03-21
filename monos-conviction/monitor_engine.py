@@ -267,7 +267,12 @@ def check_mon_003():
     alerts = []
     resolved = 0
     code = "MON-003"
-    watchlist = ["GLD", "GDX", "SILJ", "SIL"]
+    # Dynamic watchlist from ticker_universe (fall back to metals)
+    try:
+        uni_rows = safe_query("ticker_universe", "ticker")
+        watchlist = [r["ticker"] for r in uni_rows if r.get("ticker")] or ["GLD", "GDX", "SILJ", "SIL"]
+    except Exception:
+        watchlist = ["GLD", "GDX", "SILJ", "SIL"]
 
     rows = safe_query(
         "fib_levels", "ticker",
@@ -437,6 +442,130 @@ def check_mon_006():
     return alerts, resolved
 
 
+def check_mon_007():
+    """MON-007: State Conflict detection across engines per ticker."""
+    alerts = []
+    resolved = 0
+    code = "MON-007"
+    conflict_rows = []
+
+    # Dynamic watchlist from ticker_universe
+    try:
+        uni_rows = safe_query("ticker_universe", "ticker")
+        tickers = [r["ticker"] for r in uni_rows if r.get("ticker")] or ["SLV", "GLD", "GDX", "SILJ", "SIL"]
+    except Exception:
+        tickers = ["SLV", "GLD", "GDX", "SILJ", "SIL"]
+
+    for ticker in tickers:
+        # Fetch latest signal from each engine
+        gex_rows = safe_query(
+            "gex_snapshots", "ticker, gex_regime",
+            filters=[("eq", ("ticker", ticker))],
+            order=("run_ts", True), limit=1,
+        )
+        dm_rows = safe_query(
+            "demark_signals", "ticker, setup_direction, signal_state",
+            filters=[("eq", ("ticker", ticker)), ("eq", ("timeframe", "daily"))],
+            order=("run_ts", True), limit=1,
+        )
+        sc_rows = safe_query(
+            "scenario_synthesis", "ticker, overall_bias, confidence_score",
+            filters=[("eq", ("ticker", ticker))],
+            order=("run_ts", True), limit=1,
+        )
+        sym_rows = safe_query(
+            "symmetry_snapshots", "ticker, convexity_state",
+            filters=[("eq", ("ticker", ticker))],
+            order=("run_ts", True), limit=1,
+        )
+
+        # Map to directional signals
+        gex_regime = (gex_rows[0].get("gex_regime", "") or "").upper() if gex_rows else ""
+        gex_signal = 1 if gex_regime == "POSITIVE" else (-1 if gex_regime == "NEGATIVE" else 0)
+
+        dm_dir = (dm_rows[0].get("setup_direction", "") or "").lower() if dm_rows else ""
+        dm_signal = 1 if dm_dir == "buy" else (-1 if dm_dir == "sell" else 0)
+
+        sc_bias = (sc_rows[0].get("overall_bias", "") or "").upper() if sc_rows else ""
+        sc_signal = 1 if "BULLISH" in sc_bias else (-1 if "BEARISH" in sc_bias else 0)
+
+        sym_state = (sym_rows[0].get("convexity_state", "") or "").upper() if sym_rows else ""
+        sym_signal = 1 if sym_state == "CONVEXITY_CHEAP" else (-1 if sym_state == "CONVEXITY_VERY_RICH" else 0)
+
+        active = [s for s in [gex_signal, dm_signal, sc_signal, sym_signal] if s != 0]
+
+        if not active:
+            conflict_state = "INSUFFICIENT_DATA"
+        else:
+            positives = sum(1 for s in active if s > 0)
+            negatives = sum(1 for s in active if s < 0)
+            total = len(active)
+            if positives == total or negatives == total:
+                conflict_state = "ALIGNED"
+            elif abs(positives - negatives) <= 1:
+                conflict_state = "MIXED"
+            else:
+                conflict_state = "CONTRADICTED"
+
+        # Store for summary and conflict_states table
+        conflict_rows.append({
+            "ticker": ticker,
+            "conflict_state": conflict_state,
+            "gex_signal": gex_signal,
+            "demark_signal": dm_signal,
+            "scenario_signal": sc_signal,
+            "symmetry_signal": sym_signal,
+            "active_count": len(active),
+        })
+
+        # Only alert on CONTRADICTED
+        if conflict_state == "CONTRADICTED":
+            if not already_alerted_today(code, ticker):
+                alerts.append({
+                    "alert_code": code,
+                    "ticker": ticker,
+                    "severity": "WARNING",
+                    "title": f"{ticker} -- engine signals contradicted",
+                    "body": (
+                        f"Engines disagree on {ticker}: "
+                        f"GEX={gex_signal:+d} DeMark={dm_signal:+d} "
+                        f"Scenario={sc_signal:+d} Symmetry={sym_signal:+d}. "
+                        f"Confidence should be reduced -- "
+                        f"do not act on high synthesis scores."
+                    ),
+                    "action": (
+                        "Review Zone Map and Dealer tabs. "
+                        "Wait for alignment before adding exposure."
+                    ),
+                    "auto_resolve": True,
+                })
+        elif conflict_state != "CONTRADICTED":
+            # Auto-resolve old CONTRADICTED alerts if now aligned/mixed
+            resolved += auto_resolve(code, ticker)
+
+    # Write conflict_states to Supabase
+    if not DRY_RUN and conflict_rows:
+        for row in conflict_rows:
+            # Delete today's rows for this ticker
+            try:
+                sb.table("conflict_states") \
+                    .delete() \
+                    .eq("ticker", row["ticker"]) \
+                    .gte("run_ts", TODAY_ISO) \
+                    .execute()
+            except Exception:
+                pass
+            # Insert
+            try:
+                sb.table("conflict_states").insert(row).execute()
+            except Exception as e:
+                if "42P01" in str(e) or "does not exist" in str(e):
+                    print("  [monitor] conflict_states table missing. Create it in SQL Editor.")
+                    break
+
+    return alerts, resolved, conflict_rows
+
+
 # =====================================================================
 # MAIN
 # =====================================================================
@@ -488,14 +617,54 @@ def main():
         if not new_alerts and resolved == 0:
             print("  OK -- no issues")
 
+    # -- MON-007: State Conflict (special return signature) -------------
+    print(f"[MON-007] State conflict detection...")
+    conflict_alerts = []
+    conflict_resolved = 0
+    conflict_rows = []
+    try:
+        conflict_alerts, conflict_resolved, conflict_rows = check_mon_007()
+    except Exception as e:
+        print(f"  ERROR: {e}")
+
+    for alert in conflict_alerts:
+        alert["run_ts"] = datetime.now(timezone.utc).isoformat()
+        success = insert_alert(alert)
+        if success:
+            total_new += 1
+            all_new_alerts.append(alert)
+            sev = alert["severity"]
+            icon = SEVERITY_ICON.get(sev, "?")
+            print(f"  [{icon}] {sev}: {alert['title']}")
+
+    if conflict_resolved > 0:
+        print(f"  Auto-resolved {conflict_resolved} old alert(s)")
+    total_resolved += conflict_resolved
+
+    if not conflict_alerts and conflict_resolved == 0:
+        print("  OK -- no contradictions")
+
     # -- Summary -------------------------------------------------------
     print()
     print("=" * 50)
     print("MONITOR ENGINE -- RUN COMPLETE")
     print("=" * 50)
-    print(f"Checks run:    {len(ALL_CHECKS)}")
+    print(f"Checks run:    {len(ALL_CHECKS) + 1}")
     print(f"New alerts:    {total_new}")
     print(f"Resolved:      {total_resolved}")
+
+    if conflict_rows:
+        print()
+        sig_fmt = lambda s: f"{s:+d}" if s != 0 else " 0"
+        print("State Conflicts:")
+        print(f"  {'TICKER':6s} | {'STATE':19s} | GEX | DM  | SC  | SYM")
+        print(f"  {'-'*6}-+-{'-'*19}-+-----+-----+-----+----")
+        for cr in conflict_rows:
+            state = cr["conflict_state"]
+            state_color = state
+            print(f"  {cr['ticker']:6s} | {state:19s} | {sig_fmt(cr['gex_signal']):>3s} | "
+                  f"{sig_fmt(cr['demark_signal']):>3s} | {sig_fmt(cr['scenario_signal']):>3s} | "
+                  f"{sig_fmt(cr['symmetry_signal']):>3s}")
 
     if all_new_alerts:
         print()
