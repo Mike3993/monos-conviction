@@ -194,10 +194,11 @@ const Badge = ({ text, color }) => (
 const _FALLBACK_SB_URL = "https://mxohdljknyiutacrqxpg.supabase.co";
 const _FALLBACK_SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14b2hkbGprbnlpdXRhY3JxeHBnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjMyODY2MiwiZXhwIjoyMDg3OTA0NjYyfQ.QN78XDiBF35TAq7jIFKkscP9UgdueSxei62mGcDCnJE";
 
-const DATA_SB_URL = localStorage.getItem("monos_data_url") || _FALLBACK_SB_URL;
-const DATA_SB_KEY = localStorage.getItem("monos_data_key") || _FALLBACK_SB_KEY;
-const SIGNAL_SB_URL = localStorage.getItem("monos_signal_url") || _FALLBACK_SB_URL;
-const SIGNAL_SB_KEY = localStorage.getItem("monos_signal_key") || _FALLBACK_SB_KEY;
+function _ls(k) { try { return localStorage.getItem(k); } catch(e) { return null; } }
+const DATA_SB_URL = _ls("monos_data_url") || _FALLBACK_SB_URL;
+const DATA_SB_KEY = _ls("monos_data_key") || _FALLBACK_SB_KEY;
+const SIGNAL_SB_URL = _ls("monos_signal_url") || _FALLBACK_SB_URL;
+const SIGNAL_SB_KEY = _ls("monos_signal_key") || _FALLBACK_SB_KEY;
 
 console.log("[MONOS_UI] DATA_SUPABASE URL:", DATA_SB_URL || "NOT SET");
 console.log("[MONOS_UI] SIGNAL_SUPABASE URL:", SIGNAL_SB_URL || "NOT SET");
@@ -1447,13 +1448,15 @@ function PortfolioStructures() {
     const load = async () => {
       setLoading(true);
       const sb = getDataSupabase();
+      console.log('[Portfolio] getDataSupabase() ->', sb ? 'OK' : 'NULL',
+                  'DATA_SB_URL:', DATA_SB_URL ? DATA_SB_URL.slice(0,30)+'...' : 'NOT SET');
       if (!sb) { setLoading(false); return; }
-      const { data: pos } = await sb
-        .schema('ledger')
+      const { data: pos, error: posErr } = await sb
         .from('positions')
-        .select('*, legs:legs(*)')
+        .select('*, legs:position_legs(*)')
         .eq('is_active', true)
         .order('entry_date', { ascending: false });
+      console.log('[Portfolio] positions:', pos?.length, pos?.[0], posErr || 'OK');
       const { data: synthesis } = await sb
         .from('scenario_synthesis')
         .select('*')
@@ -4547,27 +4550,19 @@ const formatGex = (val) => {
 };
 
 const ZoneCard = ({ ticker }) => {
-  const zones = ticker === 'SLV' ? [
-    { level: 68.40, label: 'Current price', type: 'CURRENT', confidence: null },
-    { level: 61.20, label: 'Primary support', type: 'PRIMARY', confidence: 0.82 },
-    { level: 55.10, label: 'Completion zone', type: 'COMPLETION', confidence: 0.91 },
-    { level: 34.02, label: 'Thesis invalidation', type: 'INVALIDATION', confidence: null },
-  ] : [
-    { level: null, label: 'Zones pending PIE engine', type: 'PENDING', confidence: null }
-  ];
-
   const typeColor = {
     CURRENT: '#5b8af5',
-    PRIMARY: '#f59e0b',
-    COMPLETION: '#22c55e',
-    INVALIDATION: '#ef4444',
+    RETRACE: '#f59e0b',
+    EXTENSION: '#22c55e',
+    SWING: '#a855f7',
+    NEAREST: '#ef4444',
     PENDING: '#5a5e72',
   };
 
-  // Fetch live GEX data from public.gex_snapshots
+  // Fetch live data from public tables
   const [gex, setGex] = React.useState(null);
-  // Fetch live DeMark data from public.demark_signals
   const [dm, setDm] = React.useState(null);
+  const [fib, setFib] = React.useState(null);
   React.useEffect(() => {
     const sb = getDataSupabase();
     if (!sb) return;
@@ -4588,7 +4583,35 @@ const ZoneCard = ({ ticker }) => {
       .then(({ data }) => {
         if (data && data.length > 0) setDm(data[0]);
       });
+    sb.from('fib_levels')
+      .select('*')
+      .eq('ticker', ticker)
+      .order('run_ts', { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data.length > 0) setFib(data[0]);
+      });
   }, [ticker]);
+
+  // Build fib zones from live data or show pending
+  const zones = React.useMemo(() => {
+    if (!fib) return [{ level: null, label: 'Fib zones pending engine run', type: 'PENDING', confidence: null }];
+    const n = fib.nearest_level;
+    return [
+      { level: fib.current_price, label: 'Current price', type: 'CURRENT', confidence: null },
+      { level: fib.swing_high, label: 'Swing high' + (fib.swing_high_date ? ' (' + fib.swing_high_date + ')' : ''), type: 'SWING', confidence: null },
+      { level: fib.e_2618, label: '261.8% extension', type: 'EXTENSION', confidence: null, nearest: n === '261.8%' },
+      { level: fib.e_1618, label: '161.8% extension', type: 'EXTENSION', confidence: null, nearest: n === '161.8%' },
+      { level: fib.e_1272, label: '127.2% extension', type: 'EXTENSION', confidence: null, nearest: n === '127.2%' },
+      { level: fib.e_100, label: '100% extension', type: 'EXTENSION', confidence: null, nearest: n === '100%' },
+      { level: fib.r_236, label: '23.6% retracement', type: 'RETRACE', confidence: null, nearest: n === '23.6%' },
+      { level: fib.r_382, label: '38.2% retracement', type: 'RETRACE', confidence: null, nearest: n === '38.2%' },
+      { level: fib.r_500, label: '50.0% retracement', type: 'RETRACE', confidence: null, nearest: n === '50.0%' },
+      { level: fib.r_618, label: '61.8% retracement', type: 'RETRACE', confidence: null, nearest: n === '61.8%' },
+      { level: fib.r_786, label: '78.6% retracement', type: 'RETRACE', confidence: null, nearest: n === '78.6%' },
+      { level: fib.swing_low, label: 'Swing low' + (fib.swing_low_date ? ' (' + fib.swing_low_date + ')' : ''), type: 'SWING', confidence: null },
+    ].filter(z => z.level != null).sort((a, b) => b.level - a.level);
+  }, [fib]);
 
   const gexZoneRow = (dotColor, price, label, badge) => (
     <div style={{
@@ -4630,7 +4653,7 @@ const ZoneCard = ({ ticker }) => {
         }}>{ticker}</span>
         <span style={{
           fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#5a5e72'
-        }}>ZONE MAP {gex ? '\u00B7 GEX Live' : '\u00B7 PIE placeholder'}</span>
+        }}>ZONE MAP {fib ? '\u00B7 FIB Live' : ''}{gex ? ' \u00B7 GEX Live' : ''}{!fib && !gex ? ' \u00B7 awaiting data' : ''}</span>
       </div>
 
       {/* Fib Zones */}
@@ -4649,13 +4672,13 @@ const ZoneCard = ({ ticker }) => {
           }}>
             {z.level ? `$${z.level.toFixed(2)}` : '\u2014'}
           </span>
-          <span style={{ fontSize: 11, color: '#94a3b8', flex: 1 }}>{z.label}</span>
-          {z.confidence && (
+          <span style={{ fontSize: 11, color: z.nearest ? '#ef4444' : '#94a3b8', flex: 1, fontWeight: z.nearest ? 700 : 400 }}>{z.label}</span>
+          {z.nearest && (
             <span style={{
               fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
-              color: z.confidence > 0.8 ? '#22c55e' : '#f59e0b'
+              color: '#ef4444', fontWeight: 700
             }}>
-              {Math.round(z.confidence * 100)}% conf
+              {'<-- NEAREST'}
             </span>
           )}
         </div>
