@@ -6537,6 +6537,7 @@ const TAB_CONFIG = [
   { id: "zonemap",    label: "Zone Map",      icon: "◎" },
   { id: "pieconfig",  label: "PIE Config",    icon: "⚙" },
   { id: "analysis",  label: "Analysis",      icon: "⬡" },
+  { id: "construct", label: "Build",         icon: "⬡" },
 ];
 
 // ═══ TICKER BAR — persistent ticker selector ═══
@@ -6980,6 +6981,555 @@ const AnalysisHubTab = ({ selectedTicker, setSelectedTicker, engineData, tickerU
   );
 };
 
+// ═══════════════════════════════════════════════════════════════════
+// CONSTRUCTION WORKSPACE TAB
+// ═══════════════════════════════════════════════════════════════════
+const ConstructionWorkspaceTab = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse, setActiveTab }) => {
+  const ticker = selectedTicker || 'SLV';
+  const [template, setTemplate] = React.useState(null);
+  const [legs, setLegs] = React.useState([]);
+  const [draftName, setDraftName] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  const [saveMsg, setSaveMsg] = React.useState('');
+
+  // Engine data lookups
+  const sc = engineData?.scenario?.[ticker] || null;
+  const gex = engineData?.gex?.[ticker] || null;
+  const dm = engineData?.demark?.[ticker] || null;
+  const sym = engineData?.symmetry?.[ticker] || null;
+  const conflict = engineData?.conflict?.[ticker] || null;
+  const trig = engineData?.trigger?.[ticker] || null;
+  const spot = gex ? gex.spot_price : null;
+  const putWall = gex ? gex.put_wall : null;
+  const callWall = gex ? gex.call_wall : null;
+  const gammaFlip = gex ? gex.gamma_flip : null;
+  const atmIv = sym ? (sym.atm_iv || sym.iv_30d || 0.35) : 0.35;
+
+  // Styles
+  const cardS = { background: COLORS.bgCard, border: '1px solid ' + COLORS.border, borderRadius: 8, padding: 16, marginBottom: 12 };
+  const hdrS = { color: COLORS.amber, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10, fontWeight: 700 };
+  const monoS = { fontFamily: "'JetBrains Mono', monospace" };
+  const pillS = (bg, clr) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 3, fontSize: 9, fontWeight: 700, background: bg, color: clr, ...monoS });
+  const inputS = { background: COLORS.bg, border: '1px solid ' + COLORS.border, borderRadius: 4, color: COLORS.text, padding: '4px 8px', fontSize: 11, ...monoS, outline: 'none', width: '100%' };
+  const btnS = (active) => ({ background: active ? COLORS.amber : COLORS.border, color: active ? '#000' : COLORS.text, border: 'none', borderRadius: 3, padding: '4px 10px', fontSize: 9, cursor: 'pointer', fontWeight: 600, ...monoS });
+
+  // ─── Black-Scholes helpers ───
+  const phi = (x) => { const a1=0.254829592, a2=-0.284496736, a3=1.421413741, a4=-1.453152027, a5=1.061405429, p=0.3275911; const s = x < 0 ? -1 : 1; const t = 1/(1+p*Math.abs(x)); const y = 1 - (((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x/2); return 0.5*(1+s*y); };
+  const bsPrice = (S, K, T, r, sigma, type) => {
+    if (T <= 0 || sigma <= 0 || S <= 0) return Math.max(0, type === 'call' ? S - K : K - S);
+    const d1 = (Math.log(S/K) + (r + sigma*sigma/2)*T) / (sigma*Math.sqrt(T));
+    const d2 = d1 - sigma*Math.sqrt(T);
+    if (type === 'call') return S*phi(d1) - K*Math.exp(-r*T)*phi(d2);
+    return K*Math.exp(-r*T)*phi(-d2) - S*phi(-d1);
+  };
+  const bsGreeks = (S, K, T, r, sigma, type) => {
+    if (T <= 0 || sigma <= 0 || S <= 0) return { delta: type === 'call' ? (S > K ? 1 : 0) : (S < K ? -1 : 0), gamma: 0, theta: 0, vega: 0 };
+    const sqrtT = Math.sqrt(T);
+    const d1 = (Math.log(S/K) + (r + sigma*sigma/2)*T) / (sigma*sqrtT);
+    const d2 = d1 - sigma*sqrtT;
+    const nd1 = Math.exp(-d1*d1/2) / Math.sqrt(2*Math.PI);
+    const delta = type === 'call' ? phi(d1) : phi(d1) - 1;
+    const gamma = nd1 / (S*sigma*sqrtT);
+    const thetaCall = (-S*nd1*sigma/(2*sqrtT) - r*K*Math.exp(-r*T)*phi(d2)) / 365;
+    const theta = type === 'call' ? thetaCall : (thetaCall + r*K*Math.exp(-r*T)) / 365;
+    const vega = S*nd1*sqrtT / 100;
+    return { delta, gamma, theta, vega };
+  };
+
+  // ─── Template definitions ───
+  const TEMPLATES = [
+    { id: 'starter', name: 'STARTER CONVEXITY', desc: '30-90 DTE | Small premium | Defined risk', when: 'Trigger active, building confidence',
+      legs: spot ? [
+        { role: 'CONVEXITY', type: 'LONG_CALL', strike: Math.round(spot * 1.15), expiry: '', qty: 2, premium: 0 },
+        { role: 'HEDGE', type: 'LONG_PUT', strike: Math.round(spot * 0.90), expiry: '', qty: 1, premium: 0 },
+      ] : [] },
+    { id: 'core_quarterly', name: 'CORE QUARTERLY', desc: '90-180 DTE | Main campaign layer', when: 'Aligned + fair/cheap convexity',
+      legs: spot ? [
+        { role: 'CORE', type: 'LONG_CALL', strike: Math.round(spot * 1.10), expiry: '', qty: 5, premium: 0 },
+        { role: 'CORE', type: 'LONG_CALL', strike: Math.round(spot * 1.20), expiry: '', qty: 3, premium: 0 },
+        { role: 'CONVEXITY', type: 'LONG_CALL', strike: Math.round(spot * 1.40), expiry: '', qty: 5, premium: 0 },
+        { role: 'HEDGE', type: 'LONG_PUT', strike: Math.round(spot * 0.85), expiry: '', qty: 3, premium: 0 },
+      ] : [] },
+    { id: 'leaps_anchor', name: 'LEAPS ANCHOR', desc: '300+ DTE | Long thesis anchor', when: 'High conviction, timing uncertain',
+      legs: spot ? [
+        { role: 'CORE', type: 'LONG_CALL', strike: Math.round(spot * 1.00), expiry: '', qty: 5, premium: 0 },
+        { role: 'CORE', type: 'LONG_CALL', strike: Math.round(spot * 1.05), expiry: '', qty: 5, premium: 0 },
+      ] : [] },
+    { id: 'full_spectrum', name: 'FULL SPECTRUM', desc: 'SLV Model | LEAPS + quarterly + tactical + hedge + income + tail', when: 'Full conviction, 12+ months',
+      legs: spot ? [
+        { role: 'CORE', type: 'LONG_CALL', strike: Math.round(spot * 1.05), expiry: '', qty: 10, premium: 0 },
+        { role: 'CONVEXITY', type: 'LONG_CALL', strike: Math.round(spot * 1.30), expiry: '', qty: 10, premium: 0 },
+        { role: 'CONVEXITY', type: 'LONG_CALL', strike: Math.round(spot * 1.60), expiry: '', qty: 15, premium: 0 },
+        { role: 'INCOME', type: 'SHORT_CALL', strike: Math.round(spot * 2.00), expiry: '', qty: -10, premium: 0 },
+        { role: 'HEDGE', type: 'LONG_PUT', strike: Math.round(spot * 0.85), expiry: '', qty: 10, premium: 0 },
+        { role: 'TAIL', type: 'LONG_CALL', strike: Math.round(spot * 2.50), expiry: '', qty: 20, premium: 0 },
+      ] : [] },
+  ];
+
+  const selectTemplate = (id) => {
+    setTemplate(id);
+    const t = TEMPLATES.find(x => x.id === id);
+    if (t) setLegs(t.legs.map((l, i) => ({ ...l, id: Date.now() + i })));
+  };
+
+  // ─── Leg helpers ───
+  const addLeg = () => { setLegs(prev => [...prev, { id: Date.now(), role: 'CORE', type: 'LONG_CALL', strike: spot ? Math.round(spot) : 50, expiry: '', qty: 1, premium: 0 }]); };
+  const removeLeg = (id) => { setLegs(prev => prev.filter(l => l.id !== id)); };
+  const updateLeg = (id, field, val) => { setLegs(prev => prev.map(l => l.id === id ? { ...l, [field]: val } : l)); };
+
+  // ─── Compute greeks from legs ───
+  const computedGreeks = React.useMemo(() => {
+    if (!spot || legs.length === 0) return null;
+    let nd = 0, ng = 0, nt = 0, nv = 0;
+    const r = 0.053;
+    legs.forEach(leg => {
+      const K = Number(leg.strike) || spot;
+      const dte = leg.expiry ? Math.max(1, Math.round((new Date(leg.expiry) - new Date()) / 86400000)) : 60;
+      const T = dte / 365;
+      const sigma = atmIv;
+      const isCall = leg.type === 'LONG_CALL' || leg.type === 'SHORT_CALL';
+      const optType = isCall ? 'call' : 'put';
+      const qty = Number(leg.qty) || 0;
+      const mult = 100;
+      const g = bsGreeks(spot, K, T, r, sigma, optType);
+      nd += g.delta * qty * mult;
+      ng += g.gamma * qty * mult;
+      nt += g.theta * qty * mult;
+      nv += g.vega * qty * mult;
+    });
+    return { delta: nd, gamma: ng, theta: nt, vega: nv };
+  }, [legs, spot, atmIv]);
+
+  // ─── P&L scenarios ───
+  const pnlScenarios = React.useMemo(() => {
+    if (!spot || legs.length === 0) return [];
+    const moves = [-0.20, -0.10, 0, 0.10, 0.20];
+    const r = 0.053;
+    return moves.map(m => {
+      const S = spot * (1 + m);
+      let totalPnl = 0;
+      legs.forEach(leg => {
+        const K = Number(leg.strike) || spot;
+        const dte = leg.expiry ? Math.max(1, Math.round((new Date(leg.expiry) - new Date()) / 86400000)) : 60;
+        const T = dte / 365;
+        const isCall = leg.type === 'LONG_CALL' || leg.type === 'SHORT_CALL';
+        const optType = isCall ? 'call' : 'put';
+        const qty = Number(leg.qty) || 0;
+        const prem = Number(leg.premium) || 0;
+        const val = bsPrice(S, K, T, r, atmIv, optType);
+        totalPnl += (val - prem) * qty * 100;
+      });
+      return { move: m, pct: Math.round(m * 100), price: S, pnl: totalPnl };
+    });
+  }, [legs, spot, atmIv]);
+
+  const maxAbsPnl = pnlScenarios.reduce((m, s) => Math.max(m, Math.abs(s.pnl)), 1);
+
+  // ─── Cost summary ───
+  const costSummary = React.useMemo(() => {
+    let totalDebit = 0, totalCredit = 0, longContracts = 0, shortContracts = 0;
+    legs.forEach(l => {
+      const qty = Number(l.qty) || 0;
+      const prem = Number(l.premium) || 0;
+      if (qty > 0) { totalDebit += prem * qty * 100; longContracts += qty; }
+      else { totalCredit += prem * Math.abs(qty) * 100; shortContracts += Math.abs(qty); }
+    });
+    return { totalDebit, totalCredit, net: totalDebit - totalCredit, longContracts, shortContracts };
+  }, [legs]);
+
+  // ─── Hedge ratio ───
+  const hedgeRatio = React.useMemo(() => {
+    if (!computedGreeks) return null;
+    let longDelta = 0, shortDelta = 0;
+    const r = 0.053;
+    legs.forEach(leg => {
+      const K = Number(leg.strike) || spot;
+      const dte = leg.expiry ? Math.max(1, Math.round((new Date(leg.expiry) - new Date()) / 86400000)) : 60;
+      const T = dte / 365;
+      const isCall = leg.type === 'LONG_CALL' || leg.type === 'SHORT_CALL';
+      const optType = isCall ? 'call' : 'put';
+      const qty = Number(leg.qty) || 0;
+      const g = bsGreeks(spot, K, T, r, atmIv, optType);
+      const d = Math.abs(g.delta * qty * 100);
+      if ((leg.type === 'LONG_CALL' && qty > 0) || (leg.type === 'SHORT_PUT' && qty < 0)) longDelta += d;
+      else shortDelta += d;
+    });
+    const coverage = longDelta > 0 ? (shortDelta / longDelta) * 100 : 0;
+    return { longDelta, shortDelta, coverage };
+  }, [legs, spot, atmIv]);
+
+  // ─── Canon check per leg ───
+  const canonCheck = (leg) => {
+    const qty = Number(leg.qty) || 0;
+    if (leg.type === 'SHORT_CALL' && qty < 0) {
+      const hasMatchingLong = legs.some(l => l.id !== leg.id && l.type === 'LONG_CALL' && Number(l.qty) > 0 && Number(l.strike) <= Number(leg.strike));
+      if (!hasMatchingLong) return { ok: false, msg: 'Naked short call — needs long call below' };
+    }
+    if (leg.type === 'SHORT_PUT' && qty < 0) {
+      const hasMatchingLong = legs.some(l => l.id !== leg.id && l.type === 'LONG_PUT' && Number(l.qty) > 0 && Number(l.strike) >= Number(leg.strike));
+      if (!hasMatchingLong) return { ok: false, msg: 'Naked short put — needs long put above' };
+    }
+    return { ok: true, msg: 'Passes basic Canon rules' };
+  };
+
+  // ─── Save draft ───
+  const saveDraft = async () => {
+    setSaving(true); setSaveMsg('');
+    try {
+      const sbUrl = DATA_SB_URL; const sbKey = DATA_SB_KEY;
+      const body = {
+        ticker, template_id: template || 'custom', draft_name: draftName || (ticker + ' Draft ' + new Date().toLocaleDateString()),
+        legs: JSON.stringify(legs), status: 'DRAFT',
+        conflict_state: conflict?.conflict_state || null,
+        trigger_state: trig?.trigger_state || null,
+        convexity_state: sym?.convexity_state || null,
+        overall_bias: sc?.overall_bias || null,
+        created_at: new Date().toISOString()
+      };
+      const resp = await fetch(sbUrl + '/rest/v1/ladder_drafts', {
+        method: 'POST',
+        headers: { 'apikey': sbKey, 'Authorization': 'Bearer ' + sbKey, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+        body: JSON.stringify(body)
+      });
+      if (resp.ok || resp.status === 201) { setSaveMsg('Draft saved — open CV3 Positions to enter'); }
+      else {
+        const txt = await resp.text();
+        if (txt.includes('relation') && txt.includes('does not exist')) {
+          const createSql = "CREATE TABLE IF NOT EXISTS public.ladder_drafts (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ticker TEXT NOT NULL, template_id TEXT, draft_name TEXT, legs JSONB, status TEXT DEFAULT 'DRAFT', conflict_state TEXT, trigger_state TEXT, convexity_state TEXT, overall_bias TEXT, created_at TIMESTAMPTZ DEFAULT now());";
+          setSaveMsg('Table not found. Run this SQL first: ' + createSql);
+        } else { setSaveMsg('Error: ' + txt); }
+      }
+    } catch (e) { setSaveMsg('Error: ' + e.message); }
+    setSaving(false);
+  };
+
+  // ─── Format helpers ───
+  const fmtK = (v) => { if (Math.abs(v) >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M'; if (Math.abs(v) >= 1e3) return '$' + (v/1e3).toFixed(1) + 'K'; return '$' + Math.round(v); };
+
+  // ════════════════════════════════════════════════
+  // COLUMN 1 — OPPORTUNITY CONTEXT
+  // ════════════════════════════════════════════════
+  const renderContext = () => {
+    const trigState = trig?.trigger_state || 'NONE';
+    const conflictState = conflict?.conflict_state || null;
+    const convexityState = sym?.convexity_state || null;
+    const gexRegime = gex?.gex_regime || null;
+    const dmDir = dm?.setup_direction || null;
+    const dmCount = dm?.active_count || dm?.count || 0;
+    const bias = sc?.overall_bias || null;
+    const scenario = sc?.primary_scenario || null;
+    const prob = sc?.probability || sc?.confidence || null;
+
+    const trigBadges = {
+      ACTIVE: { icon: '\u2605', bg: 'rgba(0,230,118,0.15)', clr: COLORS.green, label: 'TRIGGER ACTIVE' },
+      NEAR: { icon: '\u25C8', bg: 'rgba(240,180,41,0.15)', clr: COLORS.amber, label: 'NEAR' },
+      FORMING: { icon: '\u25B3', bg: 'rgba(90,94,114,0.15)', clr: COLORS.textDim, label: 'FORMING' },
+      NONE: { icon: '\u2717', bg: 'rgba(58,62,82,0.15)', clr: COLORS.textDim, label: 'NONE' },
+    };
+    const tb = trigBadges[trigState] || trigBadges.NONE;
+
+    const conflictColors = { ALIGNED: COLORS.green, MIXED: COLORS.amber, CONTRADICTED: COLORS.red };
+    const convexityLabels = { CHEAP: { clr: COLORS.green, txt: 'CHEAP \u2014 good to own' }, FAIR: { clr: COLORS.textDim, txt: 'FAIR' }, RICH: { clr: COLORS.amber, txt: 'RICH \u2014 headwind' }, VERY_RICH: { clr: COLORS.red, txt: 'V.RICH \u2014 strong headwind' } };
+    const cx = convexityLabels[convexityState] || { clr: COLORS.textDim, txt: convexityState || '--' };
+
+    // Deployment assessment
+    let deployCard = { bg: 'rgba(58,62,82,0.08)', clr: COLORS.textDim, txt: 'System: Not yet constructive' };
+    if (trigState === 'ACTIVE' && conflictState === 'ALIGNED') deployCard = { bg: 'rgba(0,230,118,0.08)', clr: COLORS.green, txt: 'System: Constructive \u2014 consider building' };
+    else if (trigState === 'ACTIVE') deployCard = { bg: 'rgba(240,180,41,0.08)', clr: COLORS.amber, txt: 'System: Constructive but signals mixed \u2014 proceed carefully' };
+    else if (trigState === 'FORMING' || trigState === 'NEAR') deployCard = { bg: 'rgba(240,180,41,0.05)', clr: COLORS.amberDim, txt: 'System: Setup forming \u2014 watch for completion' };
+
+    return (
+      <div style={{ width: 280, flexShrink: 0, overflowY: 'auto', maxHeight: 'calc(100vh - 140px)' }}>
+        <div style={cardS}>
+          <div style={{ textAlign: 'center', marginBottom: 12 }}>
+            <span style={{ ...monoS, fontSize: 22, fontWeight: 700, color: COLORS.amber }}>{ticker}</span>
+            {spot && <span style={{ ...monoS, fontSize: 12, color: COLORS.textDim, marginLeft: 8 }}>${spot.toFixed(2)}</span>}
+          </div>
+
+          {/* Trigger */}
+          <div style={{ padding: '6px 10px', background: tb.bg, borderRadius: 4, marginBottom: 8, textAlign: 'center' }}>
+            <span style={{ ...monoS, fontSize: 10, fontWeight: 700, color: tb.clr }}>{tb.icon} {tb.label}</span>
+          </div>
+
+          {/* Conflict */}
+          {conflictState && <div style={{ marginBottom: 6 }}>
+            <span style={{ ...monoS, fontSize: 8, color: COLORS.textDim, letterSpacing: 1 }}>CONFLICT </span>
+            <span style={pillS((conflictColors[conflictState] || COLORS.textDim) + '18', conflictColors[conflictState] || COLORS.textDim)}>{conflictState}</span>
+          </div>}
+
+          {/* Convexity */}
+          <div style={{ marginBottom: 6 }}>
+            <span style={{ ...monoS, fontSize: 8, color: COLORS.textDim, letterSpacing: 1 }}>CONVEXITY </span>
+            <span style={{ ...monoS, fontSize: 10, color: cx.clr, fontWeight: 600 }}>{cx.txt}</span>
+          </div>
+
+          {/* Scenario */}
+          {bias && <div style={{ marginBottom: 6 }}>
+            <span style={{ ...monoS, fontSize: 8, color: COLORS.textDim, letterSpacing: 1 }}>SCENARIO </span>
+            <span style={{ ...monoS, fontSize: 10, color: bias === 'BULLISH' ? COLORS.green : bias === 'BEARISH' ? COLORS.red : COLORS.textDim, fontWeight: 600 }}>
+              {bias}{scenario ? ' \u2014 ' + scenario : ''}{prob ? ' (' + (prob * 100).toFixed(0) + '%)' : ''}
+            </span>
+          </div>}
+
+          {/* GEX regime */}
+          {gexRegime && <div style={{ marginBottom: 6 }}>
+            <span style={{ ...monoS, fontSize: 8, color: COLORS.textDim, letterSpacing: 1 }}>GEX </span>
+            <span style={{ ...monoS, fontSize: 10, color: gexRegime === 'NEGATIVE' ? COLORS.red : COLORS.green, fontWeight: 600 }}>
+              {gexRegime === 'NEGATIVE' ? 'SHORT GAMMA \u2014 moves amplified' : 'LONG GAMMA \u2014 moves dampened'}
+            </span>
+          </div>}
+
+          {/* DeMark */}
+          {dmDir && <div style={{ marginBottom: 8 }}>
+            <span style={{ ...monoS, fontSize: 8, color: COLORS.textDim, letterSpacing: 1 }}>DEMARK </span>
+            <span style={{ ...monoS, fontSize: 10, color: COLORS.text }}>{dmDir} {dmCount}/9</span>
+            <div style={{ height: 3, background: COLORS.border, borderRadius: 2, marginTop: 4 }}>
+              <div style={{ height: '100%', width: (dmCount / 9 * 100) + '%', background: COLORS.amber, borderRadius: 2 }} />
+            </div>
+          </div>}
+
+          {/* Key levels */}
+          <div style={{ borderTop: '1px solid ' + COLORS.border, paddingTop: 8, marginBottom: 8 }}>
+            <div style={{ ...monoS, fontSize: 8, color: COLORS.textDim, letterSpacing: 1, marginBottom: 4 }}>KEY LEVELS</div>
+            {putWall && <div style={{ ...monoS, fontSize: 10, color: COLORS.red }}>Put wall: ${putWall.toFixed(0)}</div>}
+            {callWall && <div style={{ ...monoS, fontSize: 10, color: COLORS.blue }}>Call wall: ${callWall.toFixed(0)}</div>}
+            {gammaFlip && <div style={{ ...monoS, fontSize: 10, color: COLORS.amber }}>Gamma flip: ${gammaFlip.toFixed(0)}</div>}
+          </div>
+
+          {/* Deployment assessment */}
+          <div style={{ background: deployCard.bg, border: '1px solid ' + deployCard.clr, borderRadius: 4, padding: '8px 10px', marginBottom: 8 }}>
+            <span style={{ ...monoS, fontSize: 9, fontWeight: 600, color: deployCard.clr }}>{deployCard.txt}</span>
+          </div>
+
+          {/* Canon note */}
+          <div style={{ ...monoS, fontSize: 9, color: COLORS.textDim, lineHeight: 1.5, fontStyle: 'italic' }}>
+            T0 retains all decision authority. System surfaces context only.
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════
+  // COLUMN 2 — LADDER BUILDER
+  // ════════════════════════════════════════════════
+  const renderBuilder = () => {
+    const ROLES = ['CORE', 'HEDGE', 'INCOME', 'CONVEXITY', 'TAIL'];
+    const TYPES = ['LONG_CALL', 'SHORT_CALL', 'LONG_PUT', 'SHORT_PUT'];
+    const roleClr = { CORE: COLORS.accent, HEDGE: COLORS.orange, INCOME: COLORS.teal, CONVEXITY: COLORS.violet, TAIL: COLORS.amber };
+
+    return (
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', maxHeight: 'calc(100vh - 140px)' }}>
+        {/* Template selector */}
+        <div style={cardS}>
+          <div style={hdrS}>TEMPLATE SELECTOR</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {TEMPLATES.map(t => (
+              <div key={t.id} onClick={() => selectTemplate(t.id)}
+                style={{ background: template === t.id ? 'rgba(240,180,41,0.08)' : COLORS.bg, border: '1px solid ' + (template === t.id ? COLORS.amber : COLORS.border), borderRadius: 6, padding: 10, cursor: 'pointer', transition: 'border-color 0.2s' }}>
+                <div style={{ ...monoS, fontSize: 10, fontWeight: 700, color: template === t.id ? COLORS.amber : COLORS.text, marginBottom: 3 }}>{t.name}</div>
+                <div style={{ ...monoS, fontSize: 8, color: COLORS.textDim, marginBottom: 4 }}>{t.desc}</div>
+                <div style={{ ...monoS, fontSize: 8, color: COLORS.textDim, fontStyle: 'italic' }}>Use when: {t.when}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Leg builder table */}
+        <div style={cardS}>
+          <div style={hdrS}>LEG BUILDER</div>
+          {/* Header row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '70px 90px 65px 90px 45px 60px 40px 36px', gap: 4, marginBottom: 6 }}>
+            {['ROLE', 'TYPE', 'STRIKE', 'EXPIRY', 'QTY', 'PREM', 'DTE', ''].map(h => (
+              <div key={h} style={{ ...monoS, fontSize: 7, color: COLORS.textDim, letterSpacing: 1, fontWeight: 600 }}>{h}</div>
+            ))}
+          </div>
+          {/* Leg rows */}
+          {legs.map(leg => {
+            const canon = canonCheck(leg);
+            const dte = leg.expiry ? Math.max(0, Math.round((new Date(leg.expiry) - new Date()) / 86400000)) : null;
+            const relPct = spot && leg.strike ? (((Number(leg.strike) - spot) / spot) * 100).toFixed(1) : null;
+            return (
+              <div key={leg.id} style={{ display: 'grid', gridTemplateColumns: '70px 90px 65px 90px 45px 60px 40px 36px', gap: 4, marginBottom: 4, alignItems: 'center' }}>
+                <select value={leg.role} onChange={e => updateLeg(leg.id, 'role', e.target.value)}
+                  style={{ ...inputS, fontSize: 9, padding: '3px 4px', color: roleClr[leg.role] || COLORS.text }}>
+                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+                <select value={leg.type} onChange={e => updateLeg(leg.id, 'type', e.target.value)}
+                  style={{ ...inputS, fontSize: 9, padding: '3px 4px' }}>
+                  {TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+                </select>
+                <div style={{ position: 'relative' }}>
+                  <input type="number" value={leg.strike} onChange={e => updateLeg(leg.id, 'strike', e.target.value)}
+                    style={{ ...inputS, fontSize: 10, padding: '3px 4px' }} />
+                  {relPct && <div style={{ ...monoS, fontSize: 7, color: COLORS.textDim, position: 'absolute', bottom: -10, left: 0 }}>{relPct > 0 ? '+' : ''}{relPct}%</div>}
+                </div>
+                <input type="date" value={leg.expiry} onChange={e => updateLeg(leg.id, 'expiry', e.target.value)}
+                  style={{ ...inputS, fontSize: 9, padding: '3px 4px' }} />
+                <input type="number" value={leg.qty} onChange={e => updateLeg(leg.id, 'qty', e.target.value)}
+                  style={{ ...inputS, fontSize: 10, padding: '3px 4px', color: Number(leg.qty) < 0 ? COLORS.red : COLORS.green }} />
+                <input type="number" step="0.01" value={leg.premium} onChange={e => updateLeg(leg.id, 'premium', e.target.value)}
+                  style={{ ...inputS, fontSize: 10, padding: '3px 4px' }} />
+                <span style={{ ...monoS, fontSize: 9, color: COLORS.textDim }}>{dte != null ? dte + 'd' : '--'}</span>
+                <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  <span title={canon.msg} style={pillS(canon.ok ? 'rgba(0,230,118,0.12)' : 'rgba(255,23,68,0.15)', canon.ok ? COLORS.green : COLORS.red)}>
+                    {canon.ok ? 'OK' : '!'}
+                  </span>
+                  <button onClick={() => removeLeg(leg.id)} style={{ background: 'none', border: 'none', color: COLORS.textDim, cursor: 'pointer', fontSize: 12, padding: 0 }}>{'\u00D7'}</button>
+                </div>
+              </div>
+            );
+          })}
+          <button onClick={addLeg} style={{ ...btnS(false), marginTop: 8, width: '100%' }}>+ Add Leg</button>
+          {/* Totals */}
+          {legs.length > 0 && <div style={{ display: 'flex', gap: 16, marginTop: 10, ...monoS, fontSize: 9, color: COLORS.textDim }}>
+            <span>Total premium: {fmtK(costSummary.net)} {costSummary.net > 0 ? '(debit)' : '(credit)'}</span>
+            <span>Net: {costSummary.longContracts} long, {costSummary.shortContracts} short</span>
+          </div>}
+        </div>
+
+        {/* Draft actions */}
+        <div style={cardS}>
+          <div style={hdrS}>DRAFT ACTIONS</div>
+          <input value={draftName} onChange={e => setDraftName(e.target.value)}
+            placeholder={ticker + ' ' + (template ? TEMPLATES.find(t => t.id === template)?.name : 'Custom') + ' ' + new Date().toLocaleDateString()}
+            style={{ ...inputS, marginBottom: 8 }} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={saveDraft} disabled={saving || legs.length === 0}
+              style={{ ...btnS(true), flex: 1, opacity: saving || legs.length === 0 ? 0.5 : 1 }}>
+              {saving ? 'Saving...' : 'Save Draft to Supabase'}
+            </button>
+            <button onClick={() => { try { sessionStorage.setItem('monos_draft_legs', JSON.stringify({ ticker, legs })); } catch(e) {} if (setActiveTab) setActiveTab('positions'); }}
+              disabled={legs.length === 0}
+              style={{ ...btnS(false), flex: 1, opacity: legs.length === 0 ? 0.5 : 1 }}>
+              Load into Entry Form
+            </button>
+          </div>
+          {saveMsg && <div style={{ ...monoS, fontSize: 9, color: saveMsg.startsWith('Error') || saveMsg.startsWith('Table') ? COLORS.amber : COLORS.green, marginTop: 6 }}>{saveMsg}</div>}
+        </div>
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════
+  // COLUMN 3 — LIVE CONTEXT PANEL
+  // ════════════════════════════════════════════════
+  const renderLivePanel = () => {
+    return (
+      <div style={{ width: 300, flexShrink: 0, overflowY: 'auto', maxHeight: 'calc(100vh - 140px)' }}>
+        {/* Greek summary */}
+        <div style={cardS}>
+          <div style={hdrS}>GREEK SUMMARY</div>
+          {computedGreeks ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div>
+                <div style={{ ...monoS, fontSize: 8, color: COLORS.textDim }}>NET DELTA</div>
+                <div style={{ ...monoS, fontSize: 16, fontWeight: 700, color: COLORS.blue }}>{computedGreeks.delta.toFixed(0)}</div>
+              </div>
+              <div>
+                <div style={{ ...monoS, fontSize: 8, color: COLORS.textDim }}>NET GAMMA</div>
+                <div style={{ ...monoS, fontSize: 16, fontWeight: 700, color: COLORS.green }}>{computedGreeks.gamma.toFixed(1)}</div>
+              </div>
+              <div>
+                <div style={{ ...monoS, fontSize: 8, color: COLORS.textDim }}>NET THETA</div>
+                <div style={{ ...monoS, fontSize: 16, fontWeight: 700, color: COLORS.red }}>-${Math.abs(computedGreeks.theta).toFixed(0)}/day</div>
+              </div>
+              <div>
+                <div style={{ ...monoS, fontSize: 8, color: COLORS.textDim }}>NET VEGA</div>
+                <div style={{ ...monoS, fontSize: 16, fontWeight: 700, color: COLORS.amber }}>{computedGreeks.vega.toFixed(0)}</div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ ...monoS, fontSize: 10, color: COLORS.textDim, textAlign: 'center', padding: 16 }}>Add legs to see greeks</div>
+          )}
+        </div>
+
+        {/* P&L preview */}
+        <div style={cardS}>
+          <div style={hdrS}>P&L PREVIEW</div>
+          {pnlScenarios.length > 0 ? (
+            <div>
+              {pnlScenarios.map((s, i) => {
+                const barW = Math.abs(s.pnl) / maxAbsPnl * 100;
+                const isPos = s.pnl >= 0;
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', marginBottom: 6, gap: 6 }}>
+                    <span style={{ ...monoS, fontSize: 9, color: s.pct === 0 ? '#fff' : COLORS.textDim, width: 36, textAlign: 'right', fontWeight: s.pct === 0 ? 700 : 400 }}>{s.pct > 0 ? '+' : ''}{s.pct}%</span>
+                    <div style={{ flex: 1, height: 16, background: 'rgba(255,255,255,0.03)', borderRadius: 2, position: 'relative', overflow: 'hidden' }}>
+                      <div style={{ position: 'absolute', [isPos ? 'left' : 'right']: '50%', top: 0, height: '100%', width: barW / 2 + '%', background: isPos ? 'rgba(0,230,118,0.5)' : 'rgba(255,23,68,0.5)', borderRadius: 2 }} />
+                      {s.pct === 0 && <div style={{ position: 'absolute', left: '50%', top: 0, width: 1, height: '100%', background: '#fff', opacity: 0.5 }} />}
+                    </div>
+                    <span style={{ ...monoS, fontSize: 9, color: isPos ? COLORS.green : COLORS.red, width: 55, textAlign: 'right' }}>{fmtK(s.pnl)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ ...monoS, fontSize: 10, color: COLORS.textDim, textAlign: 'center', padding: 16 }}>Add legs to see P&L</div>
+          )}
+        </div>
+
+        {/* Cost summary */}
+        <div style={cardS}>
+          <div style={hdrS}>COST SUMMARY</div>
+          <div style={{ ...monoS, fontSize: 10, color: COLORS.text, lineHeight: 1.8 }}>
+            <div>Total debit: <span style={{ color: COLORS.red }}>{fmtK(costSummary.totalDebit)}</span> ({costSummary.longContracts} contracts x $100)</div>
+            <div>Total credit: <span style={{ color: COLORS.green }}>{fmtK(costSummary.totalCredit)}</span></div>
+            <div>Net premium: <span style={{ fontWeight: 700 }}>{fmtK(costSummary.net)}</span></div>
+            {spot && costSummary.net > 0 && legs.filter(l => l.type === 'LONG_CALL').length > 0 && (() => {
+              const mainCall = legs.filter(l => l.type === 'LONG_CALL').sort((a, b) => Number(a.strike) - Number(b.strike))[0];
+              if (!mainCall) return null;
+              const be = Number(mainCall.strike) + costSummary.net / (costSummary.longContracts * 100);
+              const movePct = ((be - spot) / spot * 100).toFixed(1);
+              return (<>
+                <div style={{ borderTop: '1px solid ' + COLORS.border, marginTop: 6, paddingTop: 6 }}>
+                  Breakeven: <span style={{ fontWeight: 700 }}>${be.toFixed(2)}</span>
+                </div>
+                <div>Move required: <span style={{ color: COLORS.amber, fontWeight: 600 }}>{movePct}%</span></div>
+              </>);
+            })()}
+          </div>
+        </div>
+
+        {/* Hedge ratio */}
+        <div style={cardS}>
+          <div style={hdrS}>HEDGE RATIO</div>
+          {hedgeRatio ? (
+            <div style={{ ...monoS, fontSize: 10, color: COLORS.text, lineHeight: 1.8 }}>
+              <div>Long delta: {hedgeRatio.longDelta.toFixed(0)}</div>
+              <div>Short/hedge delta: {hedgeRatio.shortDelta.toFixed(0)}</div>
+              <div>Coverage: <span style={{ fontWeight: 700, color: hedgeRatio.coverage > 70 ? COLORS.green : hedgeRatio.coverage > 30 ? COLORS.amber : COLORS.red }}>
+                {hedgeRatio.coverage.toFixed(0)}%
+              </span></div>
+              <div style={{ marginTop: 4 }}>
+                <span style={pillS(
+                  hedgeRatio.coverage > 70 ? 'rgba(0,230,118,0.12)' : hedgeRatio.coverage > 30 ? 'rgba(240,180,41,0.12)' : 'rgba(255,23,68,0.12)',
+                  hedgeRatio.coverage > 70 ? COLORS.green : hedgeRatio.coverage > 30 ? COLORS.amber : COLORS.red
+                )}>
+                  {hedgeRatio.coverage > 70 ? 'Well hedged' : hedgeRatio.coverage > 30 ? 'Moderate hedge' : 'Under-hedged'}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ ...monoS, fontSize: 10, color: COLORS.textDim, textAlign: 'center', padding: 16 }}>Add legs to see hedge ratio</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════
+  // MAIN RENDER
+  // ════════════════════════════════════════════════
+  return (
+    <div style={{ display: 'flex', gap: 16, padding: '0 8px' }}>
+      {renderContext()}
+      {renderBuilder()}
+      {renderLivePanel()}
+    </div>
+  );
+};
+
 function App() {
   const [activeTab, setActiveTab] = React.useState("convexmap");
   const [selectedTicker, setSelectedTicker] = React.useState(null);
@@ -6990,7 +7540,8 @@ function App() {
   });
   const [engineData, setEngineData] = React.useState({
     gex: {}, demark: {}, fib: {},
-    scenario: {}, scanner: [], reload: {}
+    scenario: {}, scanner: [], reload: {},
+    symmetry: {}, conflict: {}, trigger: {}
   });
   const [engineLoaded, setEngineLoaded] = React.useState(false);
 
@@ -7025,8 +7576,8 @@ function App() {
         });
 
       // Load all engine data in parallel
-      let pending = 7;
-      const ed = { gex: {}, demark: {}, fib: {}, scenario: {}, scanner: [], reload: {}, vix: null };
+      let pending = 10;
+      const ed = { gex: {}, demark: {}, fib: {}, scenario: {}, scanner: [], reload: {}, vix: null, symmetry: {}, conflict: {}, trigger: {} };
       const check = () => { pending--; if (pending <= 0) { setEngineData(ed); setEngineLoaded(true); } };
 
       sb.from('gex_snapshots').select('*')
@@ -7057,6 +7608,18 @@ function App() {
       sb.from('vix_regime').select('*')
         .order('run_ts', { ascending: false }).limit(1)
         .then(({ data }) => { ed.vix = (data && data[0]) || null; check(); });
+
+      sb.from('symmetry_snapshots').select('*')
+        .order('run_ts', { ascending: false }).limit(20)
+        .then(({ data }) => { ed.symmetry = toMap(data); check(); });
+
+      sb.from('conflict_states').select('*')
+        .order('run_ts', { ascending: false }).limit(20)
+        .then(({ data }) => { ed.conflict = toMap(data); check(); });
+
+      sb.from('trigger_state').select('*')
+        .order('run_ts', { ascending: false }).limit(20)
+        .then(({ data }) => { ed.trigger = toMap(data); check(); });
     };
     loadUniverse();
   }, []);
@@ -7125,6 +7688,7 @@ function App() {
         {activeTab === "zonemap" && <ZoneMapTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
         {activeTab === "pieconfig" && <PIEConfigTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
         {activeTab === "analysis" && <AnalysisHubTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "construct" && <ConstructionWorkspaceTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} setActiveTab={setActiveTab} />}
       </div>
 
       {/* Footer */}
