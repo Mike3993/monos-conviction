@@ -6538,6 +6538,7 @@ const TAB_CONFIG = [
   { id: "pieconfig",  label: "PIE Config",    icon: "⚙" },
   { id: "analysis",  label: "Analysis",      icon: "⬡" },
   { id: "construct", label: "Build",         icon: "⬡" },
+  { id: "portfolioos", label: "Portfolio OS", icon: "⬡" },
 ];
 
 // ═══ TICKER BAR — persistent ticker selector ═══
@@ -7530,6 +7531,374 @@ const ConstructionWorkspaceTab = ({ selectedTicker, setSelectedTicker, engineDat
   );
 };
 
+// ═══════════════════════════════════════════════════════════════════
+// PORTFOLIO OS TAB
+// ═══════════════════════════════════════════════════════════════════
+const PortfolioOSTab = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse, setActiveTab }) => {
+  const [positions, setPositions] = React.useState([]);
+  const [legs, setLegs] = React.useState([]);
+  const [graphRows, setGraphRows] = React.useState([]);
+  const [triggerRows, setTriggerRows] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    setLoading(true);
+    const sbUrl = DATA_SB_URL;
+    const sbKey = DATA_SB_KEY;
+    if (!sbUrl || !sbKey) { setLoading(false); return; }
+    const hdr = { apikey: sbKey, Authorization: 'Bearer ' + sbKey };
+    Promise.all([
+      fetch(sbUrl + '/rest/v1/positions?is_active=eq.true&select=*', { headers: hdr }).then(r => r.ok ? r.json() : []),
+      fetch(sbUrl + '/rest/v1/position_legs?select=*', { headers: hdr }).then(r => r.ok ? r.json() : []),
+      fetch(sbUrl + '/rest/v1/position_graph?order=run_ts.desc,scenario_price.asc&limit=500', { headers: hdr }).then(r => r.ok ? r.json() : []),
+      fetch(sbUrl + '/rest/v1/trigger_state?order=run_ts.desc&limit=30', { headers: hdr }).then(r => r.ok ? r.json() : []),
+    ]).then(([pos, lg, gr, tr]) => {
+      setPositions(pos || []);
+      setLegs(lg || []);
+      setGraphRows(gr || []);
+      setTriggerRows(tr || []);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  // Styles
+  const cardS = { background: COLORS.bgCard, border: '1px solid ' + COLORS.border, borderRadius: 8, padding: 20, marginBottom: 20 };
+  const hdrS = { color: COLORS.amber, fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 12, fontWeight: 700 };
+  const monoS = { fontFamily: "'JetBrains Mono', monospace" };
+  const pillS = (bg, clr) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 3, fontSize: 9, fontWeight: 700, background: bg, color: clr, ...monoS });
+  const fmtK = (v) => { if (Math.abs(v) >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M'; if (Math.abs(v) >= 1e3) return '$' + (v/1e3).toFixed(1) + 'K'; return '$' + Math.round(v); };
+
+  // Group positions by ticker
+  const posByTicker = React.useMemo(() => {
+    const m = {};
+    (positions || []).forEach(p => {
+      if (!m[p.ticker]) m[p.ticker] = [];
+      m[p.ticker].push(p);
+    });
+    return m;
+  }, [positions]);
+
+  const positionTickers = Object.keys(posByTicker);
+
+  // Group legs by ticker (via position_id)
+  const legsByTicker = React.useMemo(() => {
+    const posMap = {};
+    (positions || []).forEach(p => { posMap[p.id] = p.ticker; });
+    const m = {};
+    (legs || []).forEach(l => {
+      const t = posMap[l.position_id];
+      if (!t) return;
+      if (!m[t]) m[t] = [];
+      m[t].push(l);
+    });
+    return m;
+  }, [positions, legs]);
+
+  // Trigger map (latest per ticker)
+  const trigMap = React.useMemo(() => {
+    const m = {};
+    (triggerRows || []).forEach(r => { if (!m[r.ticker]) m[r.ticker] = r; });
+    return m;
+  }, [triggerRows]);
+
+  // Position graph: spot rows (closest to 0% move) per ticker for today
+  const spotGraphByTicker = React.useMemo(() => {
+    if (!graphRows.length) return {};
+    const latestTs = graphRows[0]?.run_ts;
+    const todayRows = graphRows.filter(r => r.run_ts === latestTs);
+    const byTicker = {};
+    todayRows.forEach(r => {
+      if (!byTicker[r.ticker]) byTicker[r.ticker] = [];
+      byTicker[r.ticker].push(r);
+    });
+    const spotMap = {};
+    Object.keys(byTicker).forEach(t => {
+      const rows = byTicker[t];
+      const dates = [...new Set(rows.map(r => r.scenario_date))].sort();
+      const todayDate = dates[0];
+      if (!todayDate) return;
+      const todayR = rows.filter(r => r.scenario_date === todayDate);
+      let best = todayR[0];
+      todayR.forEach(r => { if (Math.abs(r.pnl_pct || 0) < Math.abs(best.pnl_pct || 999)) best = r; });
+      spotMap[t] = best;
+    });
+    return spotMap;
+  }, [graphRows]);
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: COLORS.textDim }}>Loading Portfolio OS...</div>;
+
+  // ════════════════════════════════════════════════
+  // SECTION 1 — TOTAL BOOK GREEKS
+  // ════════════════════════════════════════════════
+  const renderBookGreeks = () => {
+    let td = 0, tg = 0, tt = 0, tv = 0, tp = 0;
+    Object.values(spotGraphByTicker).forEach(r => {
+      if (!r) return;
+      td += Number(r.net_delta) || 0;
+      tg += Number(r.net_gamma) || 0;
+      tt += Number(r.net_theta) || 0;
+      tv += Number(r.net_vega) || 0;
+      tp += Number(r.estimated_pnl) || 0;
+    });
+    const metrics = [
+      { label: '\u0394 Delta', value: td.toFixed(0), color: td >= 0 ? COLORS.blue : COLORS.red },
+      { label: '\u0393 Gamma', value: tg.toFixed(1), color: COLORS.green },
+      { label: '\u0398 Theta/day', value: '-$' + Math.abs(tt).toFixed(0), color: COLORS.red },
+      { label: '\u03BD Vega', value: tv.toFixed(0), color: COLORS.amber },
+      { label: 'P&L', value: fmtK(tp), color: tp >= 0 ? COLORS.green : COLORS.red },
+    ];
+    const deltaDir = td >= 0 ? 'LONG' : 'SHORT';
+    const gammaDir = tg >= 0 ? 'LONG' : 'SHORT';
+    return (
+      <div style={cardS}>
+        <div style={hdrS}>TOTAL BOOK GREEKS</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 12 }}>
+          {metrics.map((m, i) => (
+            <div key={i} style={{ background: COLORS.bg, borderRadius: 6, padding: '12px 10px', textAlign: 'center', border: '1px solid ' + COLORS.border }}>
+              <div style={{ ...monoS, fontSize: 8, color: COLORS.textDim, letterSpacing: 1, marginBottom: 4 }}>{m.label}</div>
+              <div style={{ ...monoS, fontSize: 20, fontWeight: 700, color: m.color }}>{m.value}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ ...monoS, fontSize: 10, color: COLORS.textDim, textAlign: 'center' }}>
+          Book is <span style={{ color: td >= 0 ? COLORS.blue : COLORS.red, fontWeight: 600 }}>{deltaDir}</span> delta
+          {' \u00B7 '}<span style={{ color: tg >= 0 ? COLORS.green : COLORS.red, fontWeight: 600 }}>{gammaDir}</span> gamma
+          {' \u00B7 bleeding '}<span style={{ color: COLORS.red, fontWeight: 600 }}>${Math.abs(tt).toFixed(0)}</span>/day
+          {' \u00B7 '}<span style={{ color: tp >= 0 ? COLORS.green : COLORS.red, fontWeight: 600 }}>{fmtK(tp)}</span> unrealized
+        </div>
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════
+  // SECTION 2 — OPPORTUNITY QUEUE
+  // ════════════════════════════════════════════════
+  const renderOpportunityQueue = () => {
+    const opps = engineData?.opportunities || [];
+    const readinessStyle = (r) => {
+      if (r === 'DEPLOY_NOW') return pillS('rgba(0,230,118,0.15)', COLORS.green);
+      if (r === 'DEPLOY_SOON') return pillS('rgba(240,180,41,0.15)', COLORS.amber);
+      if (r === 'WATCH') return pillS('rgba(90,94,114,0.15)', COLORS.textDim);
+      return pillS('rgba(58,62,82,0.15)', COLORS.textMuted);
+    };
+    return (
+      <div style={cardS}>
+        <div style={hdrS}>OPPORTUNITY QUEUE</div>
+        <div style={{ ...monoS, fontSize: 9, color: COLORS.textDim, marginBottom: 12 }}>Maximum Wealth Builder &middot; ranked by deployment readiness</div>
+        {opps.length === 0 ? (
+          <div style={{ ...monoS, fontSize: 10, color: COLORS.textDim, padding: 20, textAlign: 'center' }}>Run wealth_builder_engine.py to populate</div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '30px 60px 45px 100px 70px 70px 1fr', gap: 6, marginBottom: 6, padding: '0 4px' }}>
+              {['#', 'TICKER', 'SCORE', 'READINESS', 'FIT', 'DRAFT', 'REASON'].map(h => (
+                <div key={h} style={{ ...monoS, fontSize: 7, color: COLORS.textDim, letterSpacing: 1, fontWeight: 600 }}>{h}</div>
+              ))}
+            </div>
+            {opps.slice(0, 7).map((o, i) => (
+              <div key={i} onClick={() => { setSelectedTicker(o.ticker); if (setActiveTab) setActiveTab('construct'); }}
+                style={{ display: 'grid', gridTemplateColumns: '30px 60px 45px 100px 70px 70px 1fr', gap: 6, padding: '6px 4px', cursor: 'pointer', borderRadius: 4, borderBottom: '1px solid ' + COLORS.border, transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <span style={{ ...monoS, fontSize: 11, color: COLORS.textDim, fontWeight: 600 }}>{o.overall_rank}</span>
+                <span style={{ ...monoS, fontSize: 11, color: COLORS.amber, fontWeight: 700 }}>{o.ticker}</span>
+                <span style={{ ...monoS, fontSize: 11, color: COLORS.text, fontWeight: 600 }}>{o.composite_score}</span>
+                <span style={readinessStyle(o.deployment_readiness)}>{o.deployment_readiness}</span>
+                <span style={{ ...monoS, fontSize: 9, color: COLORS.textDim }}>{o.portfolio_fit}</span>
+                <span style={{ ...monoS, fontSize: 9, color: o.draftability === 'READY' ? COLORS.green : o.draftability === 'PARTIAL' ? COLORS.amber : COLORS.red }}>{o.draftability}</span>
+                <span style={{ ...monoS, fontSize: 9, color: COLORS.textDim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.top_reason}</span>
+              </div>
+            ))}
+            <div style={{ ...monoS, fontSize: 9, color: COLORS.textDim, fontStyle: 'italic', marginTop: 8, textAlign: 'center' }}>
+              Click any row to open Construction Workspace &rarr;
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════
+  // SECTION 3 — LADDER SUMMARY CARDS
+  // ════════════════════════════════════════════════
+  const renderLadderCards = () => {
+    if (positionTickers.length === 0) return (
+      <div style={cardS}>
+        <div style={hdrS}>ACTIVE LADDERS</div>
+        <div style={{ ...monoS, fontSize: 10, color: COLORS.textDim, textAlign: 'center', padding: 20 }}>No active positions found</div>
+      </div>
+    );
+    return (
+      <div style={cardS}>
+        <div style={hdrS}>ACTIVE LADDERS</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+          {positionTickers.map(t => {
+            const posCount = (posByTicker[t] || []).length;
+            const legCount = (legsByTicker[t] || []).length;
+            const spotG = spotGraphByTicker[t];
+            const pnl = spotG ? Number(spotG.estimated_pnl) || 0 : null;
+            const theta = spotG ? Number(spotG.net_theta) || 0 : null;
+            const tr = trigMap[t] || engineData?.trigger?.[t];
+            const con = engineData?.conflict?.[t];
+            const sym = engineData?.symmetry?.[t];
+            const sc = engineData?.scenario?.[t];
+            const rl = engineData?.reload?.[t];
+            const trigState = tr?.trigger_state || 'NONE';
+            const conflictState = con?.conflict_state || null;
+            const convexState = sym?.convexity_state || null;
+            const bias = sc?.overall_bias || null;
+            const reloadStage = rl?.stage || rl?.reload_stage || null;
+
+            const trigClr = { ACTIVE: COLORS.green, NEAR: COLORS.amber, FORMING: COLORS.textDim, NONE: COLORS.textMuted };
+            const conClr = { ALIGNED: COLORS.green, MIXED: COLORS.amber, CONTRADICTED: COLORS.red };
+            const biasClr = { BULLISH: COLORS.green, BEARISH: COLORS.red, NEUTRAL: COLORS.textDim };
+            const convShort = { CHEAP: 'CHEAP', FAIR: 'FAIR', RICH: 'RICH', VERY_RICH: 'V.RICH' };
+
+            return (
+              <div key={t} onClick={() => { setSelectedTicker(t); if (setActiveTab) setActiveTab('analysis'); }}
+                style={{ background: COLORS.bg, border: '1px solid ' + COLORS.border, borderRadius: 6, padding: 12, cursor: 'pointer', transition: 'border-color 0.2s' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = COLORS.amber}
+                onMouseLeave={e => e.currentTarget.style.borderColor = COLORS.border}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div>
+                    <span style={{ ...monoS, fontSize: 14, fontWeight: 700, color: COLORS.amber }}>{t}</span>
+                    <span style={{ ...monoS, fontSize: 9, color: COLORS.textDim, marginLeft: 8 }}>{posCount} pos &middot; {legCount} legs</span>
+                  </div>
+                  {pnl !== null && <span style={{ ...monoS, fontSize: 14, fontWeight: 700, color: pnl >= 0 ? COLORS.green : COLORS.red }}>{fmtK(pnl)}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <span style={pillS((trigClr[trigState] || COLORS.textMuted) + '18', trigClr[trigState] || COLORS.textMuted)}>{trigState}</span>
+                  {conflictState && <span style={pillS((conClr[conflictState] || COLORS.textDim) + '18', conClr[conflictState] || COLORS.textDim)}>{conflictState}</span>}
+                  {convexState && <span style={pillS('rgba(167,139,250,0.12)', COLORS.violet)}>{convShort[convexState] || convexState}</span>}
+                  {bias && <span style={pillS((biasClr[bias] || COLORS.textDim) + '18', biasClr[bias] || COLORS.textDim)}>{bias}</span>}
+                  {reloadStage && <span style={pillS('rgba(61,139,253,0.12)', COLORS.blue)}>{reloadStage}</span>}
+                </div>
+                {theta !== null && <div style={{ ...monoS, fontSize: 9, color: COLORS.red }}>-${Math.abs(theta).toFixed(0)}/day theta</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════
+  // SECTION 4 — ROLL CALENDAR
+  // ════════════════════════════════════════════════
+  const renderRollCalendar = () => {
+    const today = new Date();
+    const cutoff = new Date(today.getTime() + 30 * 86400000);
+    const posMap = {};
+    (positions || []).forEach(p => { posMap[p.id] = p.ticker; });
+
+    const upcoming = (legs || []).filter(l => {
+      const exp = l.expiration || l.expiry;
+      if (!exp) return false;
+      const d = new Date(exp);
+      return d >= today && d <= cutoff;
+    }).map(l => {
+      const exp = l.expiration || l.expiry;
+      const d = new Date(exp);
+      const dte = Math.max(0, Math.round((d - today) / 86400000));
+      return { ...l, ticker: posMap[l.position_id] || '??', expiryDate: exp, dte };
+    }).sort((a, b) => a.dte - b.dte);
+
+    // Group by date
+    const grouped = {};
+    upcoming.forEach(l => {
+      const key = l.expiryDate;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(l);
+    });
+    const dates = Object.keys(grouped).sort();
+
+    return (
+      <div style={cardS}>
+        <div style={hdrS}>ROLL CALENDAR</div>
+        <div style={{ ...monoS, fontSize: 9, color: COLORS.textDim, marginBottom: 12 }}>Next 30 days &middot; all active legs</div>
+        {dates.length === 0 ? (
+          <div style={{ ...monoS, fontSize: 10, color: COLORS.textDim, textAlign: 'center', padding: 20 }}>No expirations in next 30 days</div>
+        ) : (
+          dates.map(dt => {
+            const items = grouped[dt];
+            const minDTE = Math.min(...items.map(l => l.dte));
+            const dateBg = minDTE <= 7 ? 'rgba(255,23,68,0.12)' : minDTE <= 14 ? 'rgba(240,180,41,0.08)' : 'rgba(255,255,255,0.02)';
+            const dateClr = minDTE <= 7 ? COLORS.red : minDTE <= 14 ? COLORS.amber : COLORS.textDim;
+            const dateLabel = new Date(dt + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return (
+              <div key={dt} style={{ background: dateBg, borderRadius: 4, padding: '8px 12px', marginBottom: 6 }}>
+                <div style={{ ...monoS, fontSize: 11, fontWeight: 700, color: dateClr, marginBottom: 4 }}>{dateLabel}</div>
+                {items.map((l, i) => {
+                  const dteClr = l.dte <= 7 ? COLORS.red : l.dte <= 14 ? COLORS.amber : COLORS.blue;
+                  const urgency = l.dte <= 7 ? 'CRITICAL' : l.dte <= 14 ? 'REVIEW' : 'WATCH';
+                  return (
+                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 0' }}>
+                      <span style={{ ...monoS, fontSize: 10, color: COLORS.amber, fontWeight: 600, width: 40 }}>{l.ticker}</span>
+                      <span style={{ ...monoS, fontSize: 9, color: COLORS.text }}>{l.leg_type || l.option_type || '--'}</span>
+                      <span style={{ ...monoS, fontSize: 9, color: COLORS.text }}>${l.strike}</span>
+                      <span style={{ ...monoS, fontSize: 9, color: dteClr, fontWeight: 600 }}>DTE:{l.dte}</span>
+                      <span style={pillS(dteClr + '18', dteClr)}>{urgency}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════
+  // SECTION 5 — CAPITAL ALLOCATION
+  // ════════════════════════════════════════════════
+  const renderCapitalAllocation = () => {
+    const totalLegs = legs.length || 1;
+    const alloc = positionTickers.map(t => {
+      const lc = (legsByTicker[t] || []).length;
+      const pc = (posByTicker[t] || []).length;
+      return { ticker: t, positions: pc, legs: lc, pct: (lc / totalLegs * 100) };
+    }).sort((a, b) => b.pct - a.pct);
+
+    return (
+      <div style={cardS}>
+        <div style={hdrS}>CAPITAL ALLOCATION</div>
+        {alloc.length === 0 ? (
+          <div style={{ ...monoS, fontSize: 10, color: COLORS.textDim, textAlign: 'center', padding: 20 }}>No positions to display</div>
+        ) : (
+          <>
+            {alloc.map((a, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <span style={{ ...monoS, fontSize: 11, fontWeight: 700, color: COLORS.amber, width: 50 }}>{a.ticker}</span>
+                <div style={{ flex: 1, height: 18, background: 'rgba(255,255,255,0.03)', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
+                  <div style={{ height: '100%', width: a.pct + '%', background: 'rgba(240,180,41,0.3)', borderRadius: 3 }} />
+                  <span style={{ position: 'absolute', right: 6, top: 2, ...monoS, fontSize: 9, color: COLORS.text }}>{a.pct.toFixed(0)}%</span>
+                </div>
+                <span style={{ ...monoS, fontSize: 9, color: COLORS.textDim, width: 90, textAlign: 'right' }}>{a.positions} pos &middot; {a.legs} legs</span>
+              </div>
+            ))}
+            <div style={{ ...monoS, fontSize: 9, color: COLORS.textDim, fontStyle: 'italic', marginTop: 8 }}>
+              Capital allocation by leg count proxy. Wire to premium data for accurate $ allocation.
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // ════════════════════════════════════════════════
+  // MAIN RENDER
+  // ════════════════════════════════════════════════
+  return (
+    <div style={{ padding: '0 8px', maxWidth: 1100, margin: '0 auto' }}>
+      {renderBookGreeks()}
+      {renderOpportunityQueue()}
+      {renderLadderCards()}
+      {renderRollCalendar()}
+      {renderCapitalAllocation()}
+    </div>
+  );
+};
+
 function App() {
   const [activeTab, setActiveTab] = React.useState("convexmap");
   const [selectedTicker, setSelectedTicker] = React.useState(null);
@@ -7541,7 +7910,8 @@ function App() {
   const [engineData, setEngineData] = React.useState({
     gex: {}, demark: {}, fib: {},
     scenario: {}, scanner: [], reload: {},
-    symmetry: {}, conflict: {}, trigger: {}
+    symmetry: {}, conflict: {}, trigger: {},
+    opportunities: []
   });
   const [engineLoaded, setEngineLoaded] = React.useState(false);
 
@@ -7576,8 +7946,8 @@ function App() {
         });
 
       // Load all engine data in parallel
-      let pending = 10;
-      const ed = { gex: {}, demark: {}, fib: {}, scenario: {}, scanner: [], reload: {}, vix: null, symmetry: {}, conflict: {}, trigger: {} };
+      let pending = 11;
+      const ed = { gex: {}, demark: {}, fib: {}, scenario: {}, scanner: [], reload: {}, vix: null, symmetry: {}, conflict: {}, trigger: {}, opportunities: [] };
       const check = () => { pending--; if (pending <= 0) { setEngineData(ed); setEngineLoaded(true); } };
 
       sb.from('gex_snapshots').select('*')
@@ -7620,6 +7990,10 @@ function App() {
       sb.from('trigger_state').select('*')
         .order('run_ts', { ascending: false }).limit(20)
         .then(({ data }) => { ed.trigger = toMap(data); check(); });
+
+      sb.from('opportunity_queue').select('*')
+        .order('overall_rank', { ascending: true }).limit(20)
+        .then(({ data }) => { ed.opportunities = data || []; check(); });
     };
     loadUniverse();
   }, []);
@@ -7689,6 +8063,7 @@ function App() {
         {activeTab === "pieconfig" && <PIEConfigTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
         {activeTab === "analysis" && <AnalysisHubTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
         {activeTab === "construct" && <ConstructionWorkspaceTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} setActiveTab={setActiveTab} />}
+        {activeTab === "portfolioos" && <PortfolioOSTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} setActiveTab={setActiveTab} />}
       </div>
 
       {/* Footer */}
