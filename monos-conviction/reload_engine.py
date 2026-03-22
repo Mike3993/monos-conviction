@@ -1,10 +1,15 @@
 """
-RELOAD ENGINE — Stage-based reload evaluation
-================================================
+RELOAD ENGINE -- 5-Stage reload evaluation + Trigger State
+============================================================
 Evaluates each active ticker against 5 conditions to determine
-reload stage (EXHAUSTION -> ZONE_WATCH -> ACCUMULATION).
+reload stage and deployment window.
 
-Designed for MONOS governance-first metals options platform.
+Stages:  EXHAUSTION -> FORMING -> ZONE_WATCH -> NEAR -> ACCUMULATION
+Trigger: NONE       -> FORMING -> NEAR       -> NEAR -> ACTIVE
+
+Writes to:
+  1. reload_stage_log  -- stage assessment per ticker
+  2. trigger_state     -- deployment window + distances
 
 Usage:
     python reload_engine.py          # full run
@@ -13,7 +18,7 @@ Usage:
 
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -42,67 +47,44 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 TODAY = date.today()
+TODAY_ISO = TODAY.isoformat()
 DRY_RUN = "--dry" in sys.argv
-
-# ===============================================================
-# STEP 1 — ENSURE OUTPUT TABLE EXISTS
-# ===============================================================
-
-CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS public.reload_stage_log (
-  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  run_ts                TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ticker                TEXT NOT NULL,
-  reload_stage          TEXT NOT NULL,
-  reload_allowed        BOOLEAN NOT NULL,
-  reload_confidence     NUMERIC,
-  conditions_met_count  INTEGER,
-  conditions_required   INTEGER,
-  next_trigger          TEXT,
-  invalidation_breached BOOLEAN NOT NULL DEFAULT false,
-  reload_blocked_reason TEXT,
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-"""
 
 PROJECT_ID = SUPABASE_URL.split("//")[1].split(".")[0]
 
 
-def ensure_table():
-    """Try to verify the table exists by querying it."""
+# ===============================================================
+# TABLE CHECKS
+# ===============================================================
+
+def ensure_table(table_name):
+    """Verify a table exists by querying it."""
     try:
-        sb.table("reload_stage_log").select("id").limit(1).execute()
-        print("[reload] Table reload_stage_log exists [OK]")
+        sb.table(table_name).select("id").limit(1).execute()
+        print(f"[reload] Table {table_name} exists [OK]")
         return True
     except Exception as e:
-        err_str = str(e)
-        if any(s in err_str.lower() for s in ["404", "42p01", "does not exist", "pgrst", "schema cache"]):
-            print("[reload] Table reload_stage_log not found.")
-            print("[reload] Please run this SQL in the Supabase SQL Editor:\n")
-            print(CREATE_TABLE_SQL)
-            print(f"[reload] SQL Editor: https://supabase.com/dashboard/project/{PROJECT_ID}/sql/new")
+        err_str = str(e).lower()
+        if any(s in err_str for s in ["404", "42p01", "does not exist", "pgrst", "schema cache"]):
+            print(f"[reload] Table {table_name} not found -- create it first")
             return False
-        print(f"[reload] Table check error: {e}")
+        print(f"[reload] Table check error ({table_name}): {e}")
         return False
 
 
 # ===============================================================
-# STEP 2 — READ ACTIVE TICKERS
+# READ ACTIVE TICKERS
 # ===============================================================
-
 
 def get_active_tickers():
     """Get distinct tickers from positions where active."""
     rows = []
-
-    # Try is_active=true first (convexity_desk schema)
     try:
         res = sb.table("positions").select("ticker").eq("is_active", True).execute()
         rows = res.data or []
     except Exception:
         pass
 
-    # Fallback: state=ACTIVE (convexity_engine schema)
     if not rows:
         try:
             res = sb.table("positions").select("ticker").eq("state", "ACTIVE").execute()
@@ -114,166 +96,469 @@ def get_active_tickers():
 
 
 # ===============================================================
-# STEP 3 — STAGE EVALUATION LOGIC
+# FETCH ENGINE DATA
 # ===============================================================
 
+def fetch_latest(table, ticker, order_col="run_ts"):
+    """Fetch most recent row from a table for a ticker."""
+    try:
+        res = sb.table(table).select("*").eq("ticker", ticker)\
+            .order(order_col, desc=True).limit(1).execute()
+        return (res.data or [None])[0]
+    except Exception:
+        return None
 
-def evaluate_ticker(ticker):
-    """Evaluate 5 conditions for a ticker and determine reload stage."""
+
+def fetch_latest_global(table, order_col="run_ts"):
+    """Fetch most recent row from a table (no ticker filter)."""
+    try:
+        res = sb.table(table).select("*")\
+            .order(order_col, desc=True).limit(1).execute()
+        return (res.data or [None])[0]
+    except Exception:
+        return None
+
+
+def fetch_engine_data(ticker):
+    """Fetch all engine data needed for evaluation."""
+    gex = fetch_latest("gex_snapshots", ticker)
+    fib = fetch_latest("fib_levels", ticker)
+    dm = fetch_latest("demark_signals", ticker)
+    sym = fetch_latest("symmetry_snapshots", ticker)
+    con = fetch_latest("conflict_states", ticker)
+    vix = fetch_latest_global("vix_regime")
+    scenario = fetch_latest("scenario_synthesis", ticker)
+
+    # Guardian check: any rows for this ticker today
+    guardian_exists = False
+    try:
+        res = sb.table("guardian_position_state").select("id")\
+            .eq("ticker", ticker).limit(1).execute()
+        guardian_exists = len(res.data or []) > 0
+    except Exception:
+        pass
+
+    return {
+        "gex": gex,
+        "fib": fib,
+        "dm": dm,
+        "sym": sym,
+        "con": con,
+        "vix": vix,
+        "scenario": scenario,
+        "guardian_exists": guardian_exists,
+    }
+
+
+# ===============================================================
+# COMPUTE DISTANCES
+# ===============================================================
+
+def compute_distances(data):
+    """Compute distances from spot to key levels as percentages."""
+    gex = data["gex"]
+    fib = data["fib"]
+    dm = data["dm"]
+    sym = data["sym"]
+
+    spot = gex.get("spot_price") if gex else None
+    distances = {
+        "spot": spot,
+        "dist_gamma_flip": None,
+        "dist_put_wall": None,
+        "dist_call_wall": None,
+        "dist_fib": None,
+        "demark_bars_remaining": None,
+        "symmetry_score": None,
+    }
+
+    if not spot:
+        return distances
+
+    # GEX distances
+    gamma_flip = gex.get("gamma_flip") if gex else None
+    put_wall = gex.get("put_wall") if gex else None
+    call_wall = gex.get("call_wall") if gex else None
+
+    if gamma_flip:
+        distances["dist_gamma_flip"] = round(abs(spot - gamma_flip) / spot * 100, 2)
+    if put_wall:
+        distances["dist_put_wall"] = round(abs(spot - put_wall) / spot * 100, 2)
+    if call_wall:
+        distances["dist_call_wall"] = round(abs(spot - call_wall) / spot * 100, 2)
+
+    # Fib distance
+    if fib:
+        nd = fib.get("nearest_distance_pct")
+        if nd is not None:
+            distances["dist_fib"] = round(nd, 2)
+
+    # DeMark bars remaining
+    if dm:
+        setup_count = dm.get("setup_count") or 0
+        setup_complete = dm.get("setup_complete")
+        signal_state = (dm.get("signal_state") or "").upper()
+        if setup_complete or signal_state == "SETUP_9_PERFECT":
+            distances["demark_bars_remaining"] = 0
+        else:
+            distances["demark_bars_remaining"] = max(0, 9 - setup_count)
+
+    # Symmetry score
+    if sym:
+        distances["symmetry_score"] = sym.get("symmetry_score")
+
+    return distances
+
+
+# ===============================================================
+# FIVE CONDITIONS
+# ===============================================================
+
+def evaluate_conditions(data, distances):
+    """Evaluate the 5 reload conditions."""
     conditions = {}
 
-    # C1 — Guardian rows exist for this ticker
-    try:
-        res = sb.table("guardian_position_state").select("id").eq("ticker", ticker).limit(1).execute()
-        conditions["C1_guardian"] = len(res.data or []) > 0
-    except Exception:
-        conditions["C1_guardian"] = False
+    # C1 -- Guardian proxy: GEX data exists for this ticker
+    conditions["C1_guardian"] = data["gex"] is not None
 
-    # C2 — Vol regime clear (placeholder — always TRUE)
-    conditions["C2_vol_clear"] = True
+    # C2 -- Vol regime clear
+    vix = data["vix"]
+    vol_state = (vix.get("vol_regime_state") or "").upper() if vix else ""
+    conditions["C2_vol_clear"] = vol_state in ["CALM_EXPANSIONARY", "NEUTRAL", ""]
 
-    # C3 — At key zone (placeholder — always FALSE)
-    conditions["C3_at_zone"] = False
+    # C3 -- At key zone (near fib, put wall, or gamma flip)
+    dist_fib = distances.get("dist_fib")
+    dist_put = distances.get("dist_put_wall")
+    dist_flip = distances.get("dist_gamma_flip")
+    at_zone = False
+    if dist_fib is not None and dist_fib <= 5.0:
+        at_zone = True
+    if dist_put is not None and dist_put <= 3.0:
+        at_zone = True
+    if dist_flip is not None and dist_flip <= 3.0:
+        at_zone = True
+    conditions["C3_at_zone"] = at_zone
 
-    # C4 — Zone stall confirmed (placeholder — always FALSE)
-    conditions["C4_zone_stall"] = False
+    # C4 -- Zone stall confirmed (DeMark setup nearly complete)
+    bars_rem = distances.get("demark_bars_remaining")
+    conditions["C4_zone_stall"] = (bars_rem is not None and bars_rem <= 2)
 
-    # C5 — Momentum reversal (placeholder — always FALSE)
-    conditions["C5_momentum"] = False
+    # C5 -- Momentum reversal (aligned signals + scenario matches demark)
+    con = data["con"]
+    conflict_state = (con.get("conflict_state") or "").upper() if con else ""
+    scenario = data["scenario"]
+    dm = data["dm"]
 
+    momentum_ok = False
+    if conflict_state == "ALIGNED" and scenario and dm:
+        scenario_bias = (scenario.get("overall_bias") or "").upper()
+        dm_direction = (dm.get("setup_direction") or "").lower()
+        if scenario_bias == "BULLISH" and dm_direction == "buy":
+            momentum_ok = True
+        elif scenario_bias == "BEARISH" and dm_direction == "sell":
+            momentum_ok = True
+    conditions["C5_momentum"] = momentum_ok
+
+    return conditions
+
+
+# ===============================================================
+# DEPLOYMENT BLOCKS + STAGE DETERMINATION
+# ===============================================================
+
+def determine_stage(conditions, data):
+    """Determine 5-stage reload classification and deployment permission."""
     conditions_met = sum(1 for v in conditions.values() if v)
     conditions_required = 3
 
-    # Determine stage
-    if conditions_met >= 3:
-        stage = "ACCUMULATION"
-        allowed = True
-        confidence = 0.55
-        next_trigger = "CONFIRMATION_HIGHER_LOW"
-    elif conditions_met >= 1:
-        stage = "ZONE_WATCH"
-        allowed = False
-        confidence = 0.25
-        next_trigger = "WAIT_FOR_ZONE"
-    else:
+    # Deployment blocks
+    con = data["con"]
+    conflict_state = (con.get("conflict_state") or "").upper() if con else ""
+
+    vix = data["vix"]
+    vol_state = (vix.get("vol_regime_state") or "").upper() if vix else ""
+
+    sym = data["sym"]
+    convexity_state = (sym.get("convexity_state") or "").upper() if sym else ""
+
+    block_contradiction = (conflict_state == "CONTRADICTED")
+    block_vol_crisis = (vol_state == "CRISIS_WATCH")
+    block_convexity = (convexity_state == "CONVEXITY_VERY_RICH")
+
+    deployment_permitted = (
+        conditions_met >= 3
+        and not block_contradiction
+        and not block_vol_crisis
+        and not block_convexity
+    )
+
+    # Stage determination
+    blocks = []
+    notes = ""
+
+    if conditions_met == 0:
         stage = "EXHAUSTION"
         allowed = False
-        confidence = 0.10
+        confidence = 0.05
         next_trigger = "STABILIZATION_AT_NEXT_ZONE"
+    elif conditions_met == 1:
+        stage = "FORMING"
+        allowed = False
+        confidence = 0.15
+        next_trigger = "WAIT_FOR_MORE_CONDITIONS"
+    elif conditions_met == 2:
+        stage = "ZONE_WATCH"
+        allowed = False
+        confidence = 0.30
+        next_trigger = "WAIT_FOR_ZONE"
+    elif conditions_met >= 3 and not deployment_permitted:
+        stage = "NEAR"
+        allowed = False
+        confidence = 0.50
+        next_trigger = "DEPLOYMENT_WINDOW_PENDING"
+        if block_contradiction:
+            blocks.append("CONTRADICTED")
+        if block_vol_crisis:
+            blocks.append("VOL_CRISIS")
+        if block_convexity:
+            blocks.append("CONVEXITY_RICH")
+        notes = f"Blocked: {', '.join(blocks)}"
+    else:
+        stage = "ACCUMULATION"
+        allowed = True
+        confidence = 0.65
+        next_trigger = "CONFIRMATION_HIGHER_LOW"
 
-    result = {
-        "ticker": ticker,
-        "reload_stage": stage,
-        "reload_allowed": allowed,
-        "reload_confidence": confidence,
-        "conditions_met_count": conditions_met,
-        "conditions_required": conditions_required,
+    # Trigger state mapping
+    if stage in ["EXHAUSTION", "FORMING"]:
+        trigger = "NONE"
+    elif stage == "ZONE_WATCH":
+        trigger = "FORMING"
+    elif stage == "NEAR":
+        trigger = "NEAR"
+    else:
+        trigger = "ACTIVE"
+
+    return {
+        "stage": stage,
+        "allowed": allowed,
+        "confidence": confidence,
         "next_trigger": next_trigger,
-        "invalidation_breached": False,
-        "reload_blocked_reason": None,
+        "conditions_met": conditions_met,
+        "conditions_required": conditions_required,
+        "deployment_permitted": deployment_permitted,
+        "trigger": trigger,
+        "notes": notes,
+        "blocks": blocks,
     }
 
-    return result, conditions
-
 
 # ===============================================================
-# STEP 4 — WRITE OUTPUT
+# WRITE RESULTS
 # ===============================================================
 
-
-def write_result(result):
-    """Delete today's rows for ticker, then insert fresh row."""
-    ticker = result["ticker"]
-
-    # Delete today's existing rows for this ticker
+def write_reload_stage(ticker, result):
+    """Write to reload_stage_log."""
     try:
-        sb.table("reload_stage_log").delete().eq("ticker", ticker).gte(
-            "run_ts", TODAY.isoformat()
-        ).execute()
-    except Exception as e:
-        print(f"  [warn] Delete failed for {ticker}: {e}")
+        sb.table("reload_stage_log").delete().eq("ticker", ticker)\
+            .gte("run_ts", TODAY_ISO + "T00:00:00+00:00").execute()
+    except Exception:
+        pass
 
-    # Insert new row
+    row = {
+        "ticker": ticker,
+        "reload_stage": result["stage"],
+        "reload_allowed": result["allowed"],
+        "reload_confidence": result["confidence"],
+        "conditions_met_count": result["conditions_met"],
+        "conditions_required": result["conditions_required"],
+        "next_trigger": result["next_trigger"],
+        "invalidation_breached": False,
+        "reload_blocked_reason": result["notes"] if result["notes"] else None,
+    }
     try:
-        sb.table("reload_stage_log").insert(result).execute()
+        sb.table("reload_stage_log").insert(row).execute()
+        return True
     except Exception as e:
-        print(f"  [error] Insert failed for {ticker}: {e}")
+        print(f"  [error] reload_stage_log insert failed for {ticker}: {e}")
+        return False
+
+
+def write_trigger_state(ticker, result, distances, data):
+    """Write to trigger_state."""
+    try:
+        sb.table("trigger_state").delete().eq("ticker", ticker)\
+            .gte("run_ts", TODAY_ISO + "T00:00:00+00:00").execute()
+    except Exception:
+        pass
+
+    con = data["con"]
+    conflict_state = (con.get("conflict_state") or "") if con else ""
+
+    row = {
+        "ticker": ticker,
+        "trigger_state": result["trigger"],
+        "dist_to_gamma_flip": distances.get("dist_gamma_flip"),
+        "dist_to_put_wall": distances.get("dist_put_wall"),
+        "dist_to_call_wall": distances.get("dist_call_wall"),
+        "dist_to_fib_level": distances.get("dist_fib"),
+        "demark_bars_remaining": distances.get("demark_bars_remaining"),
+        "symmetry_score": distances.get("symmetry_score"),
+        "conflict_state": conflict_state,
+        "conditions_met": result["conditions_met"],
+        "conditions_required": result["conditions_required"],
+        "deployment_permitted": result["deployment_permitted"],
+        "notes": result["notes"] if result["notes"] else None,
+    }
+    try:
+        sb.table("trigger_state").insert(row).execute()
+        return True
+    except Exception as e:
+        print(f"  [error] trigger_state insert failed for {ticker}: {e}")
+        return False
 
 
 # ===============================================================
-# STEP 5 — MAIN
+# MAIN
 # ===============================================================
 
 STAGE_ICONS = {
-    "EXHAUSTION": "O",
+    "EXHAUSTION": "o",
+    "FORMING": "O",
     "ZONE_WATCH": "@",
+    "NEAR": "*",
     "ACCUMULATION": "#",
-    "BLOCKED": "X",
+}
+
+TRIGGER_ICONS = {
+    "NONE": "x",
+    "FORMING": "~",
+    "NEAR": "+",
+    "ACTIVE": "!",
 }
 
 
 def main():
-    print("=" * 60)
-    print("RELOAD ENGINE — RUN START")
+    print("=" * 64)
+    print("RELOAD ENGINE -- 5-Stage + Trigger State")
     print(f"Date: {TODAY}")
     print(f"Mode: {'DRY RUN' if DRY_RUN else 'LIVE'}")
-    print(f"Supabase: {SUPABASE_URL[:45]}…")
-    print("=" * 60)
+    print(f"Supabase: {SUPABASE_URL[:45]}...")
+    print("=" * 64)
 
-    # Step 1 — ensure table
-    if not ensure_table():
-        if not DRY_RUN:
-            print("\n[reload] Cannot write results — table missing. Exiting.")
-            sys.exit(1)
-        print("\n[reload] DRY RUN — continuing without table.")
+    # Ensure tables
+    tables_ok = True
+    for tbl in ["reload_stage_log", "trigger_state"]:
+        if not ensure_table(tbl):
+            tables_ok = False
 
-    # Step 2 — get tickers
+    if not tables_ok and not DRY_RUN:
+        print("\n[reload] Cannot write results -- tables missing. Exiting.")
+        sys.exit(1)
+
+    # Get tickers
     tickers = get_active_tickers()
     print(f"\n[reload] Active tickers: {tickers if tickers else 'none found'}")
 
     if not tickers:
         print("[reload] No active tickers. Nothing to evaluate.")
-        print("=" * 60)
+        print("=" * 64)
         return
 
-    # Step 3 + 4 — evaluate and write
-    results = []
+    # Evaluate each ticker
+    all_results = []
     for ticker in tickers:
-        result, conditions = evaluate_ticker(ticker)
-        results.append((result, conditions))
+        print(f"\n[{ticker}] Fetching engine data...")
+        data = fetch_engine_data(ticker)
+
+        sources = []
+        if data["gex"]:        sources.append("GEX")
+        if data["fib"]:        sources.append("Fib")
+        if data["dm"]:         sources.append("DeMark")
+        if data["sym"]:        sources.append("Symmetry")
+        if data["con"]:        sources.append("Conflict")
+        if data["vix"]:        sources.append("VIX")
+        if data["scenario"]:   sources.append("Scenario")
+        if data["guardian_exists"]: sources.append("Guardian")
+        print(f"  [{ticker}] Sources: {', '.join(sources) if sources else 'NONE'}")
+
+        distances = compute_distances(data)
+        conditions = evaluate_conditions(data, distances)
+        result = determine_stage(conditions, data)
+
+        print(f"  [{ticker}] Stage: {result['stage']} | "
+              f"Trigger: {result['trigger']} | "
+              f"Conditions: {result['conditions_met']}/{result['conditions_required']}")
+
         if not DRY_RUN:
-            write_result(result)
+            ok1 = write_reload_stage(ticker, result)
+            ok2 = write_trigger_state(ticker, result, distances, data)
+            status = "OK" if (ok1 and ok2) else "PARTIAL"
+            print(f"  [{ticker}] Write: [{status}]")
 
-    # Step 5 — summary
+        all_results.append((ticker, data, distances, conditions, result))
+
+    # Summary
     print()
-    print("=" * 60)
-    print("RELOAD ENGINE — RUN COMPLETE")
-    print("=" * 60)
-    print(f"Tickers evaluated:  {len(results)}")
-    if not DRY_RUN:
-        print(f"Rows written:       {len(results)}")
+    print("=" * 64)
+    print("RELOAD ENGINE -- RUN COMPLETE")
+    print("=" * 64)
+    print(f"Tickers evaluated: {len(all_results)}")
     print()
-    print("O = EXHAUSTION  @ = ZONE_WATCH  # = ACCUMULATION  X = BLOCKED")
+    print("Stages: o=EXHAUSTION  O=FORMING  @=ZONE_WATCH  *=NEAR  #=ACCUMULATION")
+    print("Trigger: x=NONE  ~=FORMING  +=NEAR  !=ACTIVE")
     print()
 
-    for result, conditions in results:
-        stage = result["reload_stage"]
-        icon = STAGE_ICONS.get(stage, "?")
-        allowed = "Y" if result["reload_allowed"] else "N"
-        conf = result["reload_confidence"]
+    for ticker, data, distances, conditions, result in all_results:
+        stage = result["stage"]
+        trigger = result["trigger"]
+        si = STAGE_ICONS.get(stage, "?")
+        ti = TRIGGER_ICONS.get(trigger, "?")
 
-        cond_parts = []
+        print(f"  [{si}] {ticker:<6} | {stage:<14} | trigger=[{ti} {trigger}]")
+
+        # Conditions
+        c_parts = []
         for k, v in conditions.items():
-            cond_parts.append(f"{'Y' if v else '.'}{k}")
+            label = k.split("_", 1)[0]
+            c_parts.append(f"{label}:{'Y' if v else 'N'}")
+        print(f"    {' '.join(c_parts)}")
+        print(f"    Conditions: {result['conditions_met']}/{result['conditions_required']} required")
 
-        print(f"  {icon} {result['ticker']:<6} | {stage:<22} | allowed={allowed} | confidence={conf:.2f}")
-        print(f"    Conditions: [{result['conditions_met_count']}/{result['conditions_required']}] {' '.join(cond_parts)}")
-        print(f"    Next: {result['next_trigger']}")
-        if result["reload_blocked_reason"]:
-            print(f"    [!] BLOCKED: {result['reload_blocked_reason']}")
+        # Distances
+        dg = distances.get("dist_gamma_flip")
+        dp = distances.get("dist_put_wall")
+        dc = distances.get("dist_call_wall")
+        df = distances.get("dist_fib")
+        bars = distances.get("demark_bars_remaining")
+
+        dist_parts = []
+        if dg is not None:
+            dist_parts.append(f"Gamma flip: {dg:.1f}%")
+        if dp is not None:
+            dist_parts.append(f"Put wall: {dp:.1f}%")
+        if dc is not None:
+            dist_parts.append(f"Call wall: {dc:.1f}%")
+        if df is not None:
+            dist_parts.append(f"Fib: {df:.1f}%")
+        if dist_parts:
+            print(f"    Dist {' | '.join(dist_parts)}")
+
+        if bars is not None:
+            print(f"    DeMark bars remaining: {bars}")
+
+        # Deployment
+        if result["deployment_permitted"]:
+            print(f"    Deployment: PERMITTED")
+        else:
+            if result["notes"]:
+                print(f"    Deployment: BLOCKED -- {result['notes']}")
+            else:
+                reason = "insufficient conditions" if result["conditions_met"] < 3 else "unknown"
+                print(f"    Deployment: BLOCKED -- {reason}")
         print()
 
-    print("=" * 60)
+    print("=" * 64)
 
 
 if __name__ == "__main__":

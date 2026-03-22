@@ -487,7 +487,7 @@ def generate_mock_summary(ticker):
 # STEP 7 -- WRITE TO SUPABASE
 # =====================================================================
 
-def write_snapshot(summary):
+def write_snapshot(summary, net_notional_by_strike=None, net_notional_by_expiry=None):
     """Write flow snapshot row for a ticker."""
     if DRY_RUN:
         return
@@ -517,6 +517,10 @@ def write_snapshot(summary):
         'largest_trade': summary['largest_trade'],
         'top_prints': summary['top_prints'],
     }
+    if net_notional_by_strike:
+        row['net_notional_by_strike'] = json.dumps(net_notional_by_strike)
+    if net_notional_by_expiry:
+        row['net_notional_by_expiry'] = json.dumps(net_notional_by_expiry)
 
     try:
         sb.table('flow_snapshots').insert(row).execute()
@@ -575,6 +579,131 @@ def write_prints(prints, ticker):
 
 
 # =====================================================================
+# STEP 8 -- FLOW STRUCTURE NODES (strike x expiry aggregation)
+# =====================================================================
+
+def build_structure_data(prints, ticker):
+    """
+    Aggregate prints by strike and by expiry window.
+    Returns (structure_nodes, net_notional_by_strike, net_notional_by_expiry).
+    """
+    if not prints:
+        return [], {}, {}
+
+    # Group by strike
+    strike_map = {}
+    for p in prints:
+        k = str(p.get('strike', 'unknown'))
+        if k not in strike_map:
+            strike_map[k] = {'call_notional': 0, 'put_notional': 0, 'prints': []}
+        if p.get('side') == 'BULLISH':
+            strike_map[k]['call_notional'] += p.get('notional', 0)
+        else:
+            strike_map[k]['put_notional'] += p.get('notional', 0)
+        strike_map[k]['prints'].append(p)
+
+    # Group by expiry window
+    expiry_map = {}
+    for p in prints:
+        window = p.get('expiry_window', 'UNKNOWN')
+        if window not in expiry_map:
+            expiry_map[window] = {'call_notional': 0, 'put_notional': 0, 'prints': []}
+        if p.get('side') == 'BULLISH':
+            expiry_map[window]['call_notional'] += p.get('notional', 0)
+        else:
+            expiry_map[window]['put_notional'] += p.get('notional', 0)
+        expiry_map[window]['prints'].append(p)
+
+    # Build structure nodes -- by strike
+    structure_nodes = []
+    for strike_str, data in strike_map.items():
+        try:
+            strike_val = float(strike_str)
+        except (ValueError, TypeError):
+            continue
+        net = data['call_notional'] - data['put_notional']
+        print_types = [p.get('print_type', '') for p in data['prints']]
+        dominant_type = max(set(print_types), key=print_types.count) if print_types else 'UNKNOWN'
+        structure_nodes.append({
+            'ticker': ticker,
+            'strike': round(strike_val, 2),
+            'expiry': None,
+            'expiry_window': None,
+            'net_notional': round(net, 2),
+            'call_notional': round(data['call_notional'], 2),
+            'put_notional': round(data['put_notional'], 2),
+            'print_count': len(data['prints']),
+            'dominant_side': 'BULLISH' if net > 0 else 'BEARISH',
+            'dominant_type': dominant_type,
+        })
+
+    # Build structure nodes -- by expiry window
+    for window, data in expiry_map.items():
+        net = data['call_notional'] - data['put_notional']
+        print_types = [p.get('print_type', '') for p in data['prints']]
+        dominant_type = max(set(print_types), key=print_types.count) if print_types else 'UNKNOWN'
+        structure_nodes.append({
+            'ticker': ticker,
+            'strike': None,
+            'expiry': None,
+            'expiry_window': window,
+            'net_notional': round(net, 2),
+            'call_notional': round(data['call_notional'], 2),
+            'put_notional': round(data['put_notional'], 2),
+            'print_count': len(data['prints']),
+            'dominant_side': 'BULLISH' if net > 0 else 'BEARISH',
+            'dominant_type': dominant_type,
+        })
+
+    # JSONB summaries for flow_snapshots
+    net_notional_by_strike = {}
+    for k, v in strike_map.items():
+        if k != 'unknown':
+            try:
+                net_notional_by_strike[str(round(float(k), 2))] = round(
+                    v['call_notional'] - v['put_notional'], 2)
+            except (ValueError, TypeError):
+                pass
+
+    net_notional_by_expiry = {
+        window: round(v['call_notional'] - v['put_notional'], 2)
+        for window, v in expiry_map.items()
+    }
+
+    return structure_nodes, net_notional_by_strike, net_notional_by_expiry
+
+
+def write_structure_nodes(nodes, ticker):
+    """Write flow structure nodes to Supabase."""
+    if DRY_RUN or not nodes:
+        return 0
+
+    # Delete today's rows
+    try:
+        sb.table('flow_structure_nodes').delete() \
+            .eq('ticker', ticker) \
+            .gte('run_ts', TODAY_ISO) \
+            .execute()
+    except Exception:
+        pass
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for n in nodes:
+        row = dict(n)
+        row['run_ts'] = now_iso
+        rows.append(row)
+
+    try:
+        for i in range(0, len(rows), 50):
+            sb.table('flow_structure_nodes').insert(rows[i:i+50]).execute()
+        return len(rows)
+    except Exception as e:
+        print(f"  [flow] Insert flow_structure_nodes failed for {ticker}: {e}")
+        return 0
+
+
+# =====================================================================
 # MAIN
 # =====================================================================
 
@@ -588,6 +717,7 @@ def main():
     print()
 
     summaries = []
+    all_structure_stats = {}
     api_count = 0
     mock_count = 0
 
@@ -617,18 +747,28 @@ def main():
             mock_count += 1
             prints = []
 
+        # Build structure data (strike/expiry aggregation)
+        structure_nodes, nn_by_strike, nn_by_expiry = build_structure_data(prints, ticker)
+        strike_nodes = [n for n in structure_nodes if n.get('strike') is not None]
+        expiry_nodes = [n for n in structure_nodes if n.get('expiry_window') is not None and n.get('strike') is None]
+
         summaries.append(summary)
 
         # Write to Supabase
-        write_snapshot(summary)
+        write_snapshot(summary, nn_by_strike, nn_by_expiry)
         write_prints(prints, ticker)
+        nodes_written = write_structure_nodes(structure_nodes, ticker)
+
+        # Track structure stats for summary
+        all_structure_stats[ticker] = {
+            'strike_nodes': strike_nodes,
+            'expiry_nodes': expiry_nodes,
+            'nn_by_strike': nn_by_strike,
+            'nn_by_expiry': nn_by_expiry,
+            'nodes_written': nodes_written,
+        }
 
         # Per-ticker output
-        sig_color = (
-            'BULL' if 'BULLISH' in summary['flow_signal']
-            else 'BEAR' if 'BEARISH' in summary['flow_signal']
-            else '----'
-        )
         print(f"  {ticker:5s} | {summary['flow_signal']:16s} | "
               f"C/P {summary['call_put_ratio']:.2f} | "
               f"Net ${summary['net_notional']:>10,.0f} | "
@@ -647,28 +787,71 @@ def main():
             if lt:
                 print(f"  Largest: {lt['print_type']} {lt['type']} "
                       f"${lt['strike']} {lt.get('expiry_window', '')}")
+
+        if strike_nodes or expiry_nodes:
+            print(f"  Structure: {len(strike_nodes)} strike nodes | "
+                  f"{len(expiry_nodes)} expiry windows | "
+                  f"{nodes_written} written")
         print()
 
     # -- Summary -------------------------------------------------------
-    print("=" * 50)
+    print("=" * 60)
     print("FLOW ENGINE -- RUN COMPLETE")
-    print("=" * 50)
+    print("=" * 60)
     print(f"Tickers: {len(TICKERS)} processed, "
           f"{api_count} from API, {mock_count} from mock")
     print()
 
     for s in summaries:
         sig = s['flow_signal']
-        print(f"  {s['ticker']:5s} | {sig:16s} | "
+        tk = s['ticker']
+        print(f"  {tk:5s} | {sig:16s} | "
               f"C/P {s['call_put_ratio']:.2f} | "
               f"Net ${s['net_notional']:>10,.0f} | "
               f"Conv {s['conviction_score']:>3}")
+
+        # Structure node summary
+        ss = all_structure_stats.get(tk, {})
+        sn = ss.get('strike_nodes', [])
+        en = ss.get('expiry_nodes', [])
+
+        if sn:
+            top_strike = max(sn, key=lambda x: abs(x['net_notional']))
+            net_k = top_strike['net_notional']
+            side = 'BULL' if net_k > 0 else 'BEAR'
+            if abs(net_k) >= 1_000_000:
+                net_str = f"${net_k/1_000_000:.1f}M"
+            elif abs(net_k) >= 1_000:
+                net_str = f"${net_k/1_000:.0f}K"
+            else:
+                net_str = f"${net_k:.0f}"
+            print(f"        Top strike: ${top_strike['strike']:.0f} "
+                  f"(net {net_str} [{side}])")
+
+        if en:
+            print(f"        Expiry breakdown:")
+            for node in sorted(en, key=lambda x: (
+                    ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'LONG_DATED', 'UNKNOWN']
+                    .index(x.get('expiry_window', 'UNKNOWN'))
+                    if x.get('expiry_window', 'UNKNOWN') in
+                    ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'LONG_DATED', 'UNKNOWN']
+                    else 99)):
+                w = node['expiry_window']
+                net_w = node['net_notional']
+                w_side = 'BULL' if net_w > 0 else 'BEAR'
+                if abs(net_w) >= 1_000_000:
+                    w_str = f"${net_w/1_000_000:.1f}M"
+                elif abs(net_w) >= 1_000:
+                    w_str = f"${net_w/1_000:.0f}K"
+                else:
+                    w_str = f"${net_w:.0f}"
+                print(f"          {w:12s}: {w_str} [{w_side}]")
 
     if DRY_RUN:
         print()
         print("DRY RUN -- no rows written")
 
-    print("=" * 50)
+    print("=" * 60)
 
 
 if __name__ == "__main__":

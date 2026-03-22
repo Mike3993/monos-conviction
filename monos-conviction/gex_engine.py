@@ -5,6 +5,10 @@ Fetches options data from Polygon (using endpoints available
 on Starter plan), computes gamma via Black-Scholes, then
 derives GEX metrics per strike.
 
+Outputs:
+  1. gex_snapshots    -- 1D summary row per ticker (net GEX, walls, regime)
+  2. gex_surface_nodes -- 2D strike x expiry surface (node-level GEX, OI, instability)
+
 Endpoint strategy (Polygon Starter tier compatible):
   1. Spot price  -> /v2/aggs/ticker/{T}/prev  (prev day close)
   2. Contracts   -> /v3/reference/options/contracts  (paginated list)
@@ -460,10 +464,164 @@ def compute_gex(contracts, spot_price):
     }
 
 # ============================================================
+# OI BY STRIKE (Step 3 addition)
+# ============================================================
+
+def build_oi_by_strike(contract_list, snapshots):
+    """Build OI concentration map, return top 20 strikes by total OI."""
+    oi_map = {}
+    for c in contract_list:
+        oticker = c.get("ticker", "")
+        snap = snapshots.get(oticker)
+        if not snap:
+            continue
+        strike = str(c.get("strike_price", ""))
+        oi = snap.get("open_interest", 0) or 0
+        ctype = (c.get("contract_type", "") or "").lower()
+        if not strike or oi <= 0:
+            continue
+        if strike not in oi_map:
+            oi_map[strike] = {"call_oi": 0, "put_oi": 0}
+        if ctype == "call":
+            oi_map[strike]["call_oi"] += oi
+        else:
+            oi_map[strike]["put_oi"] += oi
+
+    # Top 20 strikes by total OI
+    top_oi = sorted(
+        oi_map.items(),
+        key=lambda x: x[1]["call_oi"] + x[1]["put_oi"],
+        reverse=True
+    )[:20]
+    return {k: v for k, v in top_oi}
+
+
+# ============================================================
+# 2D SURFACE NODES (Step 2)
+# ============================================================
+
+def expiry_window(days):
+    """Classify days-to-expiry into a window label."""
+    if days <= 7:
+        return "WEEKLY"
+    if days <= 30:
+        return "MONTHLY"
+    if days <= 90:
+        return "QUARTERLY"
+    return "LONG_DATED"
+
+
+def build_surface_nodes(contract_list, snapshots, spot_price):
+    """
+    Build 2D strike x expiry surface from raw contract list + snapshots.
+    Groups contracts by (strike, expiry), computes node-level GEX,
+    wall_strength, and instability for each node.
+    Returns list of surface node dicts.
+    """
+    today = datetime.date.today()
+
+    # Group contracts by (strike, expiry)
+    groups = {}
+    for c in contract_list:
+        oticker = c.get("ticker", "")
+        snap = snapshots.get(oticker)
+        if not snap:
+            continue
+
+        strike = c.get("strike_price")
+        exp_str = c.get("expiration_date", "")
+        ctype = (c.get("contract_type", "") or "").lower()
+        oi = snap.get("open_interest", 0) or 0
+
+        if not strike or not exp_str or oi <= 0:
+            continue
+
+        try:
+            exp_date = datetime.date.fromisoformat(exp_str)
+        except ValueError:
+            continue
+
+        days_to_exp = (exp_date - today).days
+        if days_to_exp <= 0:
+            continue
+
+        strike = float(strike)
+        T = days_to_exp / 365.0
+
+        # Option price for IV estimation
+        session = snap.get("session", {})
+        opt_close = session.get("close", 0)
+        opt_price = float(opt_close) if opt_close else 0
+
+        if opt_price > 0:
+            iv = estimate_iv(opt_price, spot_price, strike, T, RISK_FREE_RATE, ctype)
+        else:
+            iv = DEFAULT_IV
+
+        gamma = bs_gamma(spot_price, strike, T, RISK_FREE_RATE, iv)
+
+        key = (strike, exp_str)
+        if key not in groups:
+            groups[key] = {
+                "strike": strike,
+                "expiry": exp_str,
+                "exp_date": exp_date,
+                "days_to_exp": days_to_exp,
+                "call_oi": 0, "put_oi": 0,
+                "call_gamma": 0.0, "put_gamma": 0.0,
+            }
+        if ctype == "call":
+            groups[key]["call_oi"] += oi
+            groups[key]["call_gamma"] += gamma
+        else:
+            groups[key]["put_oi"] += oi
+            groups[key]["put_gamma"] += gamma
+
+    # Compute node-level metrics
+    surface_rows = []
+    for key, g in groups.items():
+        call_oi = g["call_oi"]
+        put_oi = g["put_oi"]
+        call_gamma = g["call_gamma"]
+        put_gamma = g["put_gamma"]
+        total_oi = call_oi + put_oi
+
+        # Node GEX: call gamma contributes positive, put gamma negative
+        node_gex = (call_gamma * call_oi - put_gamma * put_oi) * (spot_price ** 2) * 100
+
+        node_oi_net = call_oi - put_oi
+
+        # Wall strength: how concentrated is this node
+        wall_strength = abs(node_gex) * math.log1p(total_oi)
+
+        # Instability: negative GEX + low OI = unstable
+        instability = max(0, -node_gex) / (total_oi + 1) * 1000
+
+        window = expiry_window(g["days_to_exp"])
+
+        surface_rows.append({
+            "ticker": "",  # filled in later
+            "strike": g["strike"],
+            "expiry": g["expiry"],
+            "expiry_window": window,
+            "call_oi": call_oi,
+            "put_oi": put_oi,
+            "call_gamma": round(call_gamma, 8),
+            "put_gamma": round(put_gamma, 8),
+            "node_gex": round(node_gex, 2),
+            "node_oi_net": node_oi_net,
+            "wall_strength": round(wall_strength, 2),
+            "instability": round(instability, 4),
+        })
+
+    return surface_rows
+
+
+# ============================================================
 # WRITE TO SUPABASE
 # ============================================================
 
-def write_snapshot(sb, ticker, spot_price, gex_data):
+def write_snapshot(sb, ticker, spot_price, gex_data, oi_by_strike=None):
     """Insert one row into public.gex_snapshots."""
     row = {
         "ticker": ticker,
@@ -477,6 +635,8 @@ def write_snapshot(sb, ticker, spot_price, gex_data):
         "top_strikes": json.dumps(gex_data["top_strikes"]),
         "run_ts": datetime.datetime.utcnow().isoformat(),
     }
+    if oi_by_strike is not None:
+        row["oi_by_strike"] = json.dumps(oi_by_strike)
     try:
         result = sb.table("gex_snapshots").insert(row).execute()
         return True
@@ -487,6 +647,48 @@ def write_snapshot(sb, ticker, spot_price, gex_data):
         else:
             print(f"[gex] ERROR writing {ticker}: {e}")
         return False
+
+
+def write_surface_nodes(sb, ticker, surface_rows, spot_price):
+    """Write 2D surface nodes to gex_surface_nodes. Filter to +/-30% of spot."""
+    # Delete today's surface rows for this ticker
+    today_str = datetime.date.today().isoformat()
+    try:
+        sb.table("gex_surface_nodes").delete()\
+            .eq("ticker", ticker)\
+            .gte("run_ts", today_str + "T00:00:00+00:00")\
+            .execute()
+    except Exception:
+        pass
+
+    # Filter to strikes within 30% of spot
+    atm_nodes = []
+    now_ts = datetime.datetime.utcnow().isoformat()
+    for row in surface_rows:
+        if abs(row["strike"] - spot_price) / spot_price <= 0.30:
+            node = dict(row)
+            node["ticker"] = ticker
+            node["run_ts"] = now_ts
+            atm_nodes.append(node)
+
+    if not atm_nodes:
+        return 0
+
+    # Insert in batches of 50
+    written = 0
+    try:
+        for i in range(0, len(atm_nodes), 50):
+            batch = atm_nodes[i:i+50]
+            sb.table("gex_surface_nodes").insert(batch).execute()
+            written += len(batch)
+    except Exception as e:
+        msg = str(e)
+        if "404" in msg or "PGRST" in msg or "does not exist" in msg:
+            print(f"[gex] ERROR: Table gex_surface_nodes not found -- create it in Supabase first")
+        else:
+            print(f"[gex] ERROR writing surface for {ticker}: {e}")
+
+    return written
 
 # ============================================================
 # MAIN
@@ -517,6 +719,7 @@ def main():
 
     results = []
     skipped = []
+    surface_stats = {}  # ticker -> surface summary
 
     for ticker in TICKERS:
         print(f"\n--- {ticker} ---")
@@ -557,21 +760,49 @@ def main():
             skipped.append(ticker)
             continue
 
-        # Step 5: Compute GEX
+        # Step 5: Compute GEX (1D)
         gex_data = compute_gex(enriched, spot)
         if not gex_data:
             print(f"[gex] WARNING: GEX computation returned no data for {ticker} -- skipping")
             skipped.append(ticker)
             continue
 
+        # Step 5b: Build OI by strike (top 20)
+        oi_by_strike = build_oi_by_strike(contract_list, snapshots)
+
+        # Step 5c: Build 2D surface nodes
+        surface_rows = build_surface_nodes(contract_list, snapshots, spot)
+        print(f"[gex] {ticker}: {len(surface_rows)} raw surface nodes computed")
+
         # Step 6: Write to Supabase
         written = False
+        surface_written = 0
         if not DRY_RUN and sb:
-            written = write_snapshot(sb, ticker, spot, gex_data)
+            written = write_snapshot(sb, ticker, spot, gex_data, oi_by_strike)
             if written:
-                print(f"[gex] {ticker}: snapshot written to gex_snapshots")
+                print(f"[gex] {ticker}: snapshot written to gex_snapshots (with oi_by_strike)")
+
+            surface_written = write_surface_nodes(sb, ticker, surface_rows, spot)
+            print(f"[gex] {ticker}: {surface_written} surface nodes written to gex_surface_nodes")
         elif DRY_RUN:
             print(f"[gex] {ticker}: DRY RUN -- skipping DB write")
+
+        # Surface stats for summary
+        atm_nodes = [r for r in surface_rows
+                     if abs(r["strike"] - spot) / spot <= 0.30]
+        window_counts = {}
+        for n in atm_nodes:
+            w = n.get("expiry_window", "?")
+            window_counts[w] = window_counts.get(w, 0) + 1
+        highest_wall = max(atm_nodes, key=lambda x: x["wall_strength"]) if atm_nodes else None
+        most_unstable = max(atm_nodes, key=lambda x: x["instability"]) if atm_nodes else None
+
+        surface_stats[ticker] = {
+            "node_count": surface_written or len(atm_nodes),
+            "windows": window_counts,
+            "highest_wall": highest_wall,
+            "most_unstable": most_unstable,
+        }
 
         results.append({
             "ticker": ticker,
@@ -608,6 +839,22 @@ def main():
         cw_s = f"${r['call_wall']:.2f}" if r['call_wall'] else "N/A"
         print(f"        Flip: {flip_s} | Put wall: {pw_s} | Call wall: {cw_s}")
         print(f"        Regime: {r['gex_regime']} | Dealer: {r['dealer_bias']}")
+
+        # Surface node summary
+        tk = r["ticker"]
+        if tk in surface_stats:
+            ss = surface_stats[tk]
+            wc = ss["windows"]
+            parts = [f"{k}: {v}" for k, v in sorted(wc.items())]
+            print(f"        Surface: {ss['node_count']} nodes | {' '.join(parts)}")
+            hw = ss["highest_wall"]
+            if hw:
+                print(f"        Highest wall: ${hw['strike']:.2f} "
+                      f"(strength: {hw['wall_strength']:.0f})")
+            mu = ss["most_unstable"]
+            if mu and mu["instability"] > 0:
+                print(f"        Most unstable: ${mu['strike']:.2f} "
+                      f"(instability: {mu['instability']:.2f})")
         print()
 
     print("=" * 60)

@@ -6536,6 +6536,7 @@ const TAB_CONFIG = [
   { id: "positions",   label: "CV3 Positions", icon: "📋" },
   { id: "zonemap",    label: "Zone Map",      icon: "◎" },
   { id: "pieconfig",  label: "PIE Config",    icon: "⚙" },
+  { id: "analysis",  label: "Analysis",      icon: "⬡" },
 ];
 
 // ═══ TICKER BAR — persistent ticker selector ═══
@@ -6642,6 +6643,340 @@ const TickerBar = ({ tickerUniverse, selectedTicker, setSelectedTicker, engineLo
         );
       })()}
     </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// ANALYSIS HUB TAB
+// ═══════════════════════════════════════════════════════════════════
+const AnalysisHubTab = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) => {
+  const ticker = selectedTicker || 'SLV';
+  const [pnlData, setPnlData] = React.useState([]);
+  const [triggerData, setTriggerData] = React.useState(null);
+  const [surfaceNodes, setSurfaceNodes] = React.useState([]);
+  const [flowNodes, setFlowNodes] = React.useState([]);
+  const [selectedDate, setSelectedDate] = React.useState(0);
+  const [surfaceMode, setSurfaceMode] = React.useState('GEX');
+  const [loading, setLoading] = React.useState(true);
+  const [lastRunTs, setLastRunTs] = React.useState(null);
+  const [expiryNodes, setExpiryNodes] = React.useState([]);
+
+  React.useEffect(() => {
+    setLoading(true);
+    const sbUrl = DATA_SB_URL;
+    const sbKey = DATA_SB_KEY;
+    if (!sbUrl || !sbKey) { setLoading(false); return; }
+    const hdr = { apikey: sbKey, Authorization: 'Bearer ' + sbKey };
+    Promise.all([
+      fetch(sbUrl + '/rest/v1/position_graph?ticker=eq.' + ticker + '&order=scenario_price.asc,scenario_date.asc&limit=500', { headers: hdr }).then(r => r.ok ? r.json() : []),
+      fetch(sbUrl + '/rest/v1/trigger_state?ticker=eq.' + ticker + '&order=run_ts.desc&limit=1', { headers: hdr }).then(r => r.ok ? r.json() : []),
+      fetch(sbUrl + '/rest/v1/gex_surface_nodes?ticker=eq.' + ticker + '&order=wall_strength.desc&limit=100', { headers: hdr }).then(r => r.ok ? r.json() : []),
+      fetch(sbUrl + '/rest/v1/flow_structure_nodes?ticker=eq.' + ticker + '&strike=not.is.null&order=run_ts.desc&limit=50', { headers: hdr }).then(r => r.ok ? r.json() : [])
+    ]).then(([pnl, trigger, surface, flow]) => {
+      setPnlData(pnl || []);
+      setTriggerData((trigger && trigger[0]) || null);
+      setSurfaceNodes(surface || []);
+      setFlowNodes(flow || []);
+      if (pnl && pnl.length > 0 && pnl[0].run_ts) setLastRunTs(pnl[0].run_ts);
+      else if (surface && surface.length > 0 && surface[0].run_ts) setLastRunTs(surface[0].run_ts);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [ticker]);
+
+  React.useEffect(() => {
+    const sbUrl = DATA_SB_URL;
+    const sbKey = DATA_SB_KEY;
+    if (!sbUrl || !sbKey) return;
+    fetch(sbUrl + '/rest/v1/flow_structure_nodes?ticker=eq.' + ticker + '&strike=is.null&order=run_ts.desc&limit=10', { headers: { apikey: sbKey, Authorization: 'Bearer ' + sbKey } })
+      .then(r => r.ok ? r.json() : []).then(d => setExpiryNodes(d || []));
+  }, [ticker]);
+
+  const cardStyle = { background: COLORS.bgCard, border: '1px solid ' + COLORS.border, borderRadius: 6, padding: 20, marginBottom: 24 };
+  const headerStyle = { color: COLORS.amber, fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 16, fontWeight: 700 };
+  const monoStyle = { fontFamily: "'JetBrains Mono', monospace" };
+  const pillStyle = (bg, clr) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 3, fontSize: 9, fontWeight: 700, background: bg, color: clr, ...monoStyle });
+
+  // Engine data
+  const gex = engineData && engineData.gex ? engineData.gex[ticker] : null;
+  const fib = engineData && engineData.fib ? engineData.fib[ticker] : null;
+  const spot = gex ? gex.spot_price : null;
+  const putWall = gex ? gex.put_wall : null;
+  const callWall = gex ? gex.call_wall : null;
+  const gammaFlip = gex ? gex.gamma_flip : null;
+  const fib2618 = fib ? fib.e_2618 : null;
+
+  // P&L helpers
+  const scenarioDates = [...new Set(pnlData.map(r => r.scenario_date))].sort();
+  const dateLabels = ['Today', '+7d', '+30d', '+60d', '+90d'];
+  const activeDateRows = scenarioDates[selectedDate] ? pnlData.filter(r => r.scenario_date === scenarioDates[selectedDate]) : [];
+  const spotRow = activeDateRows.find(r => spot && Math.abs(r.scenario_price - spot) < 0.5);
+
+  // Chart data with pct
+  const chartData = activeDateRows.map(r => ({
+    ...r,
+    scenario_pct: spot ? Math.round(((r.scenario_price - spot) / spot) * 100) : 0,
+    pnl_k: r.estimated_pnl / 1000
+  }));
+
+  if (loading) return React.createElement('div', { style: { padding: 40, textAlign: 'center', color: COLORS.textDim } }, 'Loading analysis data...');
+
+  // ─── SECTION 1: STRUCTURAL POSITION DIAL ───
+  const renderDial = () => {
+    if (!spot) return React.createElement('div', { style: { ...cardStyle, textAlign: 'center', color: COLORS.textDim, padding: 40 } }, 'No GEX data for ' + ticker + '. Run gex_engine.py');
+    const minP = spot * 0.70, maxP = spot * 1.30, range = maxP - minP;
+    const cx = 200, cy = 180, rad = 150;
+    const priceToAngle = p => Math.max(0, Math.min(180, ((p - minP) / range) * 180));
+    const angleToXY = deg => {
+      const r = (deg - 180) * Math.PI / 180;
+      return { x: cx + rad * Math.cos(r), y: cy + rad * Math.sin(r) };
+    };
+    const arcPath = (startDeg, endDeg) => {
+      const s = angleToXY(startDeg), e = angleToXY(endDeg);
+      const large = (endDeg - startDeg) > 180 ? 1 : 0;
+      return 'M' + s.x + ',' + s.y + ' A' + rad + ',' + rad + ' 0 ' + large + ',1 ' + e.x + ',' + e.y;
+    };
+    const markers = [];
+    const addMarker = (price, label, color) => {
+      if (!price || price < minP || price > maxP) return;
+      const ang = priceToAngle(price);
+      const pt = angleToXY(ang);
+      const inner = angleToXY(ang);
+      const outerR = rad + 12;
+      const outerPt = { x: cx + outerR * Math.cos((ang - 180) * Math.PI / 180), y: cy + outerR * Math.sin((ang - 180) * Math.PI / 180) };
+      markers.push({ price, label, color, pt, outerPt, ang });
+    };
+    addMarker(putWall, 'PUT', COLORS.red);
+    addMarker(gammaFlip, 'FLIP', COLORS.amber);
+    addMarker(callWall, 'CALL', COLORS.blue);
+    addMarker(fib2618, '261.8%', COLORS.violet);
+    const spotAng = priceToAngle(spot);
+    const spotPt = angleToXY(spotAng);
+    // Zone arcs
+    const zoneArcs = [];
+    const pw = putWall && putWall >= minP ? putWall : minP;
+    const cw = callWall && callWall <= maxP ? callWall : maxP;
+    const gf = gammaFlip || (pw + cw) / 2;
+    zoneArcs.push({ d: arcPath(0, priceToAngle(pw)), color: 'rgba(255,23,68,0.25)' });
+    zoneArcs.push({ d: arcPath(priceToAngle(pw), priceToAngle(gf)), color: 'rgba(240,180,41,0.18)' });
+    zoneArcs.push({ d: arcPath(priceToAngle(gf), priceToAngle(cw)), color: 'rgba(240,180,41,0.18)' });
+    zoneArcs.push({ d: arcPath(priceToAngle(cw), 180), color: 'rgba(61,139,253,0.25)' });
+    // Trigger badge
+    const ts = triggerData ? triggerData.trigger_state : 'NONE';
+    const tsBadge = { ACTIVE: { icon: '\u2605', bg: 'rgba(0,230,118,0.15)', clr: COLORS.green, label: 'TRIGGER ACTIVE' }, NEAR: { icon: '\u25C8', bg: 'rgba(240,180,41,0.15)', clr: COLORS.amber, label: 'NEAR' }, FORMING: { icon: '\u25B3', bg: 'rgba(90,94,114,0.15)', clr: COLORS.textDim, label: 'FORMING' }, NONE: { icon: '\u2717', bg: 'rgba(58,62,82,0.15)', clr: COLORS.textDim, label: 'NONE' } }[ts] || { icon: '?', bg: 'rgba(58,62,82,0.15)', clr: COLORS.textDim, label: ts };
+    const gexRegime = gex ? gex.gex_regime : '';
+    return React.createElement('div', { style: cardStyle },
+      React.createElement('div', { style: headerStyle }, 'STRUCTURAL POSITION'),
+      React.createElement('div', { style: { textAlign: 'center' } },
+        React.createElement('svg', { width: 400, height: 220, viewBox: '0 0 400 220', style: { display: 'block', margin: '0 auto' } },
+          React.createElement('path', { d: 'M50,180 A150,150 0 0,1 350,180', fill: 'none', stroke: COLORS.border, strokeWidth: 22, strokeLinecap: 'round' }),
+          ...zoneArcs.map((z, i) => React.createElement('path', { key: 'z' + i, d: z.d, fill: 'none', stroke: z.color, strokeWidth: 20, strokeLinecap: 'butt' })),
+          ...markers.map((m, i) => React.createElement('g', { key: 'mk' + i },
+            React.createElement('line', { x1: m.pt.x, y1: m.pt.y, x2: m.outerPt.x, y2: m.outerPt.y, stroke: m.color, strokeWidth: 2 }),
+            React.createElement('text', { x: m.outerPt.x, y: m.outerPt.y + 12, textAnchor: 'middle', fill: m.color, fontSize: 8, fontFamily: "'JetBrains Mono', monospace" }, m.label + ' $' + m.price.toFixed(0))
+          )),
+          React.createElement('circle', { cx: spotPt.x, cy: spotPt.y, r: 6, fill: '#fff', opacity: 0.9 }),
+          React.createElement('circle', { cx: spotPt.x, cy: spotPt.y, r: 10, fill: 'none', stroke: '#fff', strokeWidth: 1.5, opacity: 0.4 }),
+          React.createElement('text', { x: cx, y: cy + 10, textAnchor: 'middle', fill: COLORS.text, fontSize: 18, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700 }, ticker + '  $' + (spot ? spot.toFixed(2) : '--')),
+          React.createElement('text', { x: cx, y: cy + 28, textAnchor: 'middle', fill: tsBadge.clr, fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }, tsBadge.icon + ' ' + tsBadge.label),
+          React.createElement('text', { x: cx, y: cy + 42, textAnchor: 'middle', fill: gexRegime === 'NEGATIVE' ? COLORS.red : gexRegime === 'POSITIVE' ? COLORS.green : COLORS.textDim, fontSize: 9, fontFamily: "'JetBrains Mono', monospace" }, gexRegime === 'NEGATIVE' ? 'SHORT GAMMA' : gexRegime === 'POSITIVE' ? 'LONG GAMMA' : 'NEUTRAL GAMMA')
+        )
+      )
+    );
+  };
+
+  // ─── SECTION 2: P&L CURVE ───
+  const renderPnL = () => {
+    if (pnlData.length === 0) return React.createElement('div', { style: { ...cardStyle, textAlign: 'center', color: COLORS.textDim, padding: 40 } }, 'No position P&L data. Run position_graph_engine.py');
+    const fmtK = v => { if (Math.abs(v) >= 1000) return (v / 1000).toFixed(0) + 'M'; return v.toFixed(0) + 'K'; };
+    const refLines = [];
+    if (putWall && spot) refLines.push({ val: Math.round(((putWall - spot) / spot) * 100), label: 'put', color: COLORS.red });
+    if (callWall && spot) refLines.push({ val: Math.round(((callWall - spot) / spot) * 100), label: 'call', color: COLORS.blue });
+    if (gammaFlip && spot) refLines.push({ val: Math.round(((gammaFlip - spot) / spot) * 100), label: 'flip', color: COLORS.amber });
+    if (fib2618 && spot) refLines.push({ val: Math.round(((fib2618 - spot) / spot) * 100), label: '261.8%', color: COLORS.violet });
+    return React.createElement('div', { style: cardStyle },
+      React.createElement('div', { style: headerStyle }, 'POSITION P&L CURVE'),
+      React.createElement('div', { style: { display: 'flex', gap: 6, marginBottom: 12 } },
+        ...dateLabels.slice(0, scenarioDates.length).map((lbl, i) =>
+          React.createElement('button', { key: i, onClick: () => setSelectedDate(i), style: { background: selectedDate === i ? COLORS.amber : COLORS.border, color: selectedDate === i ? '#000' : COLORS.text, border: 'none', borderRadius: 3, padding: '3px 10px', fontSize: 9, cursor: 'pointer', fontWeight: 600, ...monoStyle } }, lbl)
+        )
+      ),
+      React.createElement(Recharts.ResponsiveContainer, { width: '100%', height: 280 },
+        React.createElement(Recharts.ComposedChart, { data: chartData, margin: { top: 10, right: 20, bottom: 10, left: 20 } },
+          React.createElement(Recharts.CartesianGrid, { strokeDasharray: '3 3', stroke: 'rgba(255,255,255,0.05)' }),
+          React.createElement(Recharts.XAxis, { dataKey: 'scenario_pct', tick: { fill: COLORS.textDim, fontSize: 9 }, tickFormatter: v => v + '%', stroke: COLORS.border }),
+          React.createElement(Recharts.YAxis, { tick: { fill: COLORS.textDim, fontSize: 9 }, tickFormatter: v => fmtK(v), stroke: COLORS.border }),
+          React.createElement(Recharts.ReferenceLine, { y: 0, stroke: '#5a5e72', strokeDasharray: '4 4' }),
+          React.createElement(Recharts.ReferenceLine, { x: 0, stroke: '#fff', strokeWidth: 1, label: { value: 'spot', fill: '#fff', fontSize: 8, position: 'top' } }),
+          ...refLines.map((rl, i) => React.createElement(Recharts.ReferenceLine, { key: 'rl' + i, x: rl.val, stroke: rl.color, strokeDasharray: '4 4', strokeWidth: 1, label: { value: rl.label, fill: rl.color, fontSize: 7, position: 'top' } })),
+          React.createElement(Recharts.Line, { type: 'monotone', dataKey: 'pnl_k', stroke: COLORS.green, strokeWidth: 2, dot: false, name: 'P&L ($K)' }),
+          React.createElement(Recharts.Tooltip, { contentStyle: { background: '#0d1219', border: '1px solid ' + COLORS.border, borderRadius: 4, fontSize: 10, fontFamily: "'JetBrains Mono', monospace" }, formatter: (v, name, props) => { const row = props.payload; return ['$' + (row.estimated_pnl / 1000).toFixed(1) + 'K', 'P&L']; }, labelFormatter: l => 'Move: ' + l + '% ($' + (chartData.find(d => d.scenario_pct === l) || {}).scenario_price + ')' })
+        )
+      ),
+      spotRow ? React.createElement('div', { style: { display: 'flex', gap: 16, justifyContent: 'center', marginTop: 12 } },
+        React.createElement('span', { style: pillStyle('rgba(61,139,253,0.15)', COLORS.blue) }, '\u0394 ' + Number(spotRow.net_delta).toFixed(0) + ' at spot'),
+        React.createElement('span', { style: pillStyle('rgba(255,23,68,0.15)', COLORS.red) }, '\u03B8 $' + Math.abs(Number(spotRow.net_theta)).toFixed(0) + '/day'),
+        React.createElement('span', { style: pillStyle('rgba(240,180,41,0.15)', COLORS.amber) }, '\u03BD ' + Number(spotRow.net_vega).toFixed(0))
+      ) : null
+    );
+  };
+
+  // ─── SECTION 3: DEALER SURFACE HEATMAP ───
+  const renderSurface = () => {
+    if (surfaceNodes.length === 0) return React.createElement('div', { style: { ...cardStyle, textAlign: 'center', color: COLORS.textDim, padding: 40 } }, 'No GEX surface data. Run gex_engine.py');
+    const windows = ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'LONG_DATED'];
+    const strikes = [...new Set(surfaceNodes.map(n => n.strike))].sort((a, b) => a - b);
+    const nodeMap = {};
+    surfaceNodes.forEach(n => { nodeMap[n.strike + '_' + n.expiry_window] = n; });
+    const maxAbs = surfaceNodes.reduce((m, n) => {
+      if (surfaceMode === 'GEX') return Math.max(m, Math.abs(n.node_gex || 0));
+      if (surfaceMode === 'OI') return Math.max(m, (n.call_oi || 0) + (n.put_oi || 0));
+      return Math.max(m, n.instability || 0);
+    }, 1);
+    const cellBg = n => {
+      if (!n) return 'transparent';
+      if (surfaceMode === 'GEX') {
+        const v = n.node_gex || 0;
+        const intensity = Math.min(0.6, Math.abs(v) / maxAbs * 0.6);
+        return v > 0 ? 'rgba(0,230,118,' + intensity + ')' : 'rgba(255,23,68,' + intensity + ')';
+      }
+      if (surfaceMode === 'OI') {
+        const oi = (n.call_oi || 0) + (n.put_oi || 0);
+        const intensity = Math.min(0.5, oi / maxAbs * 0.5);
+        return 'rgba(61,139,253,' + intensity + ')';
+      }
+      const inst = n.instability || 0;
+      const intensity = Math.min(0.6, inst / maxAbs * 0.6);
+      return 'rgba(255,23,68,' + intensity + ')';
+    };
+    const cellVal = n => {
+      if (!n) return '';
+      if (surfaceMode === 'GEX') { const v = n.node_gex || 0; return Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : Math.abs(v) >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : v.toFixed(0); }
+      if (surfaceMode === 'OI') return ((n.call_oi || 0) + (n.put_oi || 0)).toLocaleString();
+      return (n.instability || 0).toFixed(0);
+    };
+    const thS = { padding: '4px 8px', textAlign: 'right', fontSize: 9, color: COLORS.amber, fontWeight: 600, borderBottom: '1px solid ' + COLORS.border, ...monoStyle };
+    const tdS = { padding: '3px 8px', textAlign: 'right', fontSize: 9, color: COLORS.text, borderBottom: '1px solid rgba(255,255,255,0.03)', ...monoStyle };
+    const topWall = surfaceNodes.reduce((best, n) => (!best || (n.wall_strength || 0) > (best.wall_strength || 0)) ? n : best, null);
+    const topUnstable = surfaceNodes.reduce((best, n) => (!best || (n.instability || 0) > (best.instability || 0)) ? n : best, null);
+    return React.createElement('div', { style: cardStyle },
+      React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 } },
+        React.createElement('div', { style: headerStyle }, 'DEALER SURFACE'),
+        React.createElement('div', { style: { display: 'flex', gap: 4 } },
+          ...['GEX', 'OI', 'INSTABILITY'].map(m =>
+            React.createElement('button', { key: m, onClick: () => setSurfaceMode(m), style: { background: surfaceMode === m ? COLORS.amber : COLORS.border, color: surfaceMode === m ? '#000' : COLORS.text, border: 'none', borderRadius: 3, padding: '3px 8px', fontSize: 8, cursor: 'pointer', fontWeight: 600, ...monoStyle } }, m)
+          )
+        )
+      ),
+      React.createElement('div', { style: { overflowX: 'auto', maxHeight: 400 } },
+        React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse' } },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              React.createElement('th', { style: { ...thS, textAlign: 'left' } }, 'STRIKE'),
+              ...windows.map(w => React.createElement('th', { key: w, style: thS }, w.slice(0, 4)))
+            )
+          ),
+          React.createElement('tbody', null,
+            ...strikes.slice(0, 30).map(strike => {
+              const isSpot = spot && Math.abs(strike - spot) / spot < 0.015;
+              const isPW = putWall && Math.abs(strike - putWall) < 0.5;
+              const isCW = callWall && Math.abs(strike - callWall) < 0.5;
+              const rowBorder = isSpot ? '2px solid ' + COLORS.amber : isPW ? '2px solid ' + COLORS.red : isCW ? '2px solid ' + COLORS.blue : 'none';
+              return React.createElement('tr', { key: strike, style: { borderLeft: rowBorder } },
+                React.createElement('td', { style: { ...tdS, textAlign: 'left', color: isSpot ? COLORS.amber : isPW ? COLORS.red : isCW ? COLORS.blue : COLORS.text, fontWeight: isSpot || isPW || isCW ? 700 : 400 } }, '$' + Number(strike).toFixed(0)),
+                ...windows.map(w => {
+                  const n = nodeMap[strike + '_' + w];
+                  return React.createElement('td', { key: w, style: { ...tdS, background: cellBg(n) } }, cellVal(n));
+                })
+              );
+            })
+          )
+        )
+      ),
+      React.createElement('div', { style: { display: 'flex', gap: 16, marginTop: 12, fontSize: 9, color: COLORS.textDim, ...monoStyle } },
+        topWall ? React.createElement('span', null, 'Strongest wall: $' + Number(topWall.strike).toFixed(0) + ' (' + (topWall.wall_strength >= 1e9 ? (topWall.wall_strength / 1e9).toFixed(1) + 'B' : (topWall.wall_strength / 1e6).toFixed(0) + 'M') + ')') : null,
+        topUnstable && topUnstable.instability > 0 ? React.createElement('span', null, 'Most unstable: $' + Number(topUnstable.strike).toFixed(0) + ' (' + Number(topUnstable.instability).toFixed(0) + ')') : null
+      )
+    );
+  };
+
+  // ─── SECTION 4: FLOW STRUCTURE ───
+  const renderFlow = () => {
+    if (flowNodes.length === 0) return React.createElement('div', { style: { ...cardStyle, textAlign: 'center', color: COLORS.textDim, padding: 40 } }, 'No flow structure data. Run flow_engine.py');
+    const byStrike = flowNodes.filter(n => n.strike != null).sort((a, b) => Math.abs(b.net_notional) - Math.abs(a.net_notional)).slice(0, 15);
+    const maxBar = byStrike.reduce((m, n) => Math.max(m, Math.abs(n.net_notional || 0)), 1);
+    const windowOrder = ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'LONG_DATED'];
+    const sortedExpiry = expiryNodes.sort((a, b) => windowOrder.indexOf(a.expiry_window) - windowOrder.indexOf(b.expiry_window));
+    const fmtN = v => { if (Math.abs(v) >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M'; if (Math.abs(v) >= 1e3) return '$' + (v / 1e3).toFixed(0) + 'K'; return '$' + v.toFixed(0); };
+    return React.createElement('div', { style: cardStyle },
+      React.createElement('div', { style: headerStyle }, 'FLOW STRUCTURE'),
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: 9, color: COLORS.textDim, marginBottom: 8, ...monoStyle } }, 'NET NOTIONAL BY STRIKE'),
+          ...byStrike.map((n, i) => {
+            const net = n.net_notional || 0;
+            const pct = Math.abs(net) / maxBar * 100;
+            const isBull = net > 0;
+            return React.createElement('div', { key: i, style: { display: 'flex', alignItems: 'center', marginBottom: 3, gap: 6 } },
+              React.createElement('span', { style: { width: 50, textAlign: 'right', fontSize: 9, color: COLORS.text, ...monoStyle } }, '$' + Number(n.strike).toFixed(0)),
+              React.createElement('div', { style: { flex: 1, height: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 2, position: 'relative', overflow: 'hidden' } },
+                React.createElement('div', { style: { position: 'absolute', left: isBull ? 0 : undefined, right: isBull ? undefined : 0, top: 0, height: '100%', width: pct + '%', background: isBull ? 'rgba(0,230,118,0.4)' : 'rgba(255,23,68,0.4)', borderRadius: 2 } })
+              ),
+              React.createElement('span', { style: { width: 60, textAlign: 'right', fontSize: 8, color: isBull ? COLORS.green : COLORS.red, ...monoStyle } }, fmtN(net))
+            );
+          })
+        ),
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: 9, color: COLORS.textDim, marginBottom: 8, ...monoStyle } }, 'BY EXPIRY WINDOW'),
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 } },
+            ...sortedExpiry.map((n, i) => {
+              const net = n.net_notional || 0;
+              const isBull = net > 0;
+              return React.createElement('div', { key: i, style: { background: COLORS.bg, border: '1px solid ' + (isBull ? 'rgba(0,230,118,0.3)' : 'rgba(255,23,68,0.3)'), borderRadius: 4, padding: 10 } },
+                React.createElement('div', { style: { fontSize: 8, color: COLORS.textDim, marginBottom: 4, ...monoStyle } }, n.expiry_window),
+                React.createElement('div', { style: { fontSize: 14, fontWeight: 700, color: isBull ? COLORS.green : COLORS.red, ...monoStyle } }, fmtN(net)),
+                React.createElement('div', { style: { marginTop: 4 } },
+                  React.createElement('span', { style: pillStyle(isBull ? 'rgba(0,230,118,0.15)' : 'rgba(255,23,68,0.15)', isBull ? COLORS.green : COLORS.red) }, n.dominant_side),
+                  React.createElement('span', { style: { fontSize: 8, color: COLORS.textDim, marginLeft: 6, ...monoStyle } }, n.print_count + ' prints')
+                )
+              );
+            })
+          )
+        )
+      )
+    );
+  };
+
+  // ─── SECTION 5: TRIGGER STATUS STRIP ───
+  const renderTrigger = () => {
+    if (!triggerData) return null;
+    const ts = triggerData.trigger_state || 'NONE';
+    const bgMap = { ACTIVE: 'rgba(0,230,118,0.08)', NEAR: 'rgba(240,180,41,0.08)', FORMING: 'rgba(240,180,41,0.05)', NONE: 'rgba(58,62,82,0.08)' };
+    const clrMap = { ACTIVE: COLORS.green, NEAR: COLORS.amber, FORMING: COLORS.amberDim, NONE: COLORS.textDim };
+    const bg = bgMap[ts] || bgMap.NONE;
+    const clr = clrMap[ts] || clrMap.NONE;
+    const dep = triggerData.deployment_permitted;
+    const distParts = [];
+    if (triggerData.dist_to_gamma_flip != null) distParts.push('Flip ' + Number(triggerData.dist_to_gamma_flip).toFixed(1) + '%');
+    if (triggerData.dist_to_put_wall != null) distParts.push('Put wall ' + Number(triggerData.dist_to_put_wall).toFixed(1) + '%');
+    if (triggerData.dist_to_fib_level != null) distParts.push('Fib ' + Number(triggerData.dist_to_fib_level).toFixed(1) + '%');
+    return React.createElement('div', { style: { background: bg, border: '1px solid ' + clr, borderRadius: 4, padding: '10px 16px', ...monoStyle } },
+      React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 } },
+        React.createElement('span', { style: { fontSize: 10, fontWeight: 700, color: clr } }, 'TRIGGER: ' + ts + '  |  Conditions: ' + (triggerData.conditions_met || 0) + '/3'),
+        distParts.length > 0 ? React.createElement('span', { style: { fontSize: 9, color: COLORS.textDim } }, 'Distances: ' + distParts.join(' | ')) : null,
+        triggerData.demark_bars_remaining != null ? React.createElement('span', { style: { fontSize: 9, color: COLORS.textDim } }, 'DeMark bars: ' + triggerData.demark_bars_remaining) : null,
+        React.createElement('span', { style: { fontSize: 9, fontWeight: 600, color: dep ? COLORS.green : COLORS.red } }, dep ? 'DEPLOYMENT: PERMITTED' : 'DEPLOYMENT: BLOCKED' + (triggerData.notes ? ' \u2014 ' + triggerData.notes : ''))
+      )
+    );
+  };
+
+  // ─── MAIN RENDER ───
+  return React.createElement('div', { style: { padding: '0 8px' } },
+    lastRunTs ? React.createElement('div', { style: { fontSize: 9, color: COLORS.textDim, marginBottom: 12, ...monoStyle } }, 'As of ' + new Date(lastRunTs).toLocaleString() + ' \u00B7 prior day close') : null,
+    renderDial(),
+    renderPnL(),
+    renderSurface(),
+    renderFlow(),
+    renderTrigger()
   );
 };
 
@@ -6789,6 +7124,7 @@ function App() {
         {activeTab === "positions" && <React.Fragment><OperatorCard selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} /><GuardianPanel selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} /><PositionsListPanel selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} /><LedgerPanel selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} /></React.Fragment>}
         {activeTab === "zonemap" && <ZoneMapTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
         {activeTab === "pieconfig" && <PIEConfigTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
+        {activeTab === "analysis" && <AnalysisHubTab selectedTicker={selectedTicker} setSelectedTicker={setSelectedTicker} engineData={engineData} tickerUniverse={tickerUniverse} />}
       </div>
 
       {/* Footer */}
