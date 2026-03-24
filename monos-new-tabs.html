@@ -951,7 +951,7 @@ function OpportunityScanner({ selectedTicker, setSelectedTicker, engineData, tic
         const sbKey = DATA_SB_KEY;
         if (sbUrl && sbKey) {
           console.log("[MONOS_UI FETCH]", "Opportunity Scanner", "scanner_candidates", "[DATA_SUPABASE]");
-          const resp = await fetch(sbUrl+"/rest/v1/scanner_candidates?order=opportunity_score.desc&limit=50",{ headers:{ apikey:sbKey,Authorization:"Bearer "+sbKey } });
+          const resp = await fetch(sbUrl+"/rest/v1/scanner_candidates?order=ranking_score.desc.nullslast,opportunity_score.desc&limit=50",{ headers:{ apikey:sbKey,Authorization:"Bearer "+sbKey } });
           if (resp.ok) { const data = await resp.json(); if (data && data.length > 0) { setRows(data); setLoading(false); return; } }
         }
       } catch(e) { console.warn("[Scanner] Supabase failed, using mock"); }
@@ -1026,16 +1026,11 @@ function OpportunityScanner({ selectedTicker, setSelectedTicker, engineData, tic
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead><tr>
-                <th style={thStyle}>#</th><th style={thStyle}>TICKER</th><th style={thStyle}>BIAS</th><th style={thStyle}>OPP SCORE</th><th style={thStyle}>STRUCTURE</th><th style={thStyle}>GEX</th><th style={thStyle}>VOL</th><th style={thStyle}>VOL REGIME</th><th style={thStyle}>THESIS</th><th style={thStyle}>GOV</th>
+                <th style={thStyle}>#</th><th style={thStyle}>TICKER</th><th style={thStyle}>MSA</th><th style={thStyle}>PRE-MSA</th><th style={thStyle}>RANK</th><th style={thStyle}>SHIFT</th><th style={thStyle}>ROT</th><th style={thStyle}>CONV</th><th style={thStyle}>ACTION</th><th style={thStyle}>LADDER</th><th style={thStyle}>GEX</th>
               </tr></thead>
               <tbody>
                 {displayRows.map((r,i) => {
-                  const govC = r.governor_status==="APPROVED"?COLORS.greenDim:r.governor_status==="CONDITIONAL"?COLORS.amber:r.governor_status==="BLOCKED"?COLORS.redDim:COLORS.textDim;
                   const isSelected = selectedTicker && r.ticker === selectedTicker;
-                  const bias = getBias(r.ticker);
-                  const biasColor = bias && bias.includes("BULL") ? COLORS.greenDim : bias && bias.includes("BEAR") ? COLORS.redDim : COLORS.textDim;
-                  const volLabel = getVolLabel(r.ticker);
-                  const volColor = volLabel === "NEGATIVE" ? COLORS.greenDim : volLabel === "POSITIVE" ? COLORS.redDim : COLORS.textDim;
                   return (
                     <tr key={r.ticker}
                       onClick={() => setDrawerTicker(r.ticker)}
@@ -1050,14 +1045,50 @@ function OpportunityScanner({ selectedTicker, setSelectedTicker, engineData, tic
                       <td style={{ ...tdStyle,color:COLORS.textDim,width:30 }}>{i+1}</td>
                       <td style={{ ...tdStyle,fontWeight:700,color: isSelected ? COLORS.amber : COLORS.text,cursor:"pointer" }}
                         onClick={(e) => { e.stopPropagation(); setSelectedTicker && setSelectedTicker(r.ticker === selectedTicker ? null : r.ticker); }}>{r.ticker}</td>
-                      <td style={{ ...tdStyle,fontSize:10,fontWeight:700,color:biasColor }}>{bias || "—"}</td>
-                      <td style={{ ...tdStyle,fontWeight:800,color:getHeatColor(r.opportunity_score) }}>{r.opportunity_score}</td>
-                      <td style={{ ...tdStyle,fontSize:10,color:COLORS.accent }}>{(r.recommended_structure||"—").replace(/_/g," ")}</td>
-                      <td style={tdStyle}><Badge text={r.gamma_state||"—"} color={r.gamma_state==="NEGATIVE"?COLORS.greenDim:r.gamma_state==="POSITIVE"?COLORS.redDim:COLORS.textDim} /></td>
-                      <td style={{ ...tdStyle,fontSize:10,fontWeight:600,color:volColor }}>{volLabel ? volLabel.replace(/_/g," ") : "—"}</td>
-                      <td style={tdStyle}><Badge text={r.vol_regime||"—"} color={r.vol_regime==="COMPRESSED"?COLORS.blue:r.vol_regime==="EXPANDED"?COLORS.orange:COLORS.textDim} /></td>
-                      <td style={{ ...tdStyle,fontSize:10,color:r.thesis_health?.includes("STRONG")?COLORS.greenDim:r.thesis_health?.includes("MODERATE")?COLORS.amber:COLORS.redDim }}>{(r.thesis_health||"—").replace(/_/g," ")}</td>
-                      <td style={tdStyle}><span style={{ fontSize:8,fontWeight:700,padding:"2px 7px",borderRadius:3,background:`${govC}15`,color:govC }}>{r.governor_status}</span></td>
+                      <td style={tdStyle}>{(() => {
+                        const ms = (r.msa_state || "").toUpperCase();
+                        const msaC = ms==="BULLISH"?COLORS.greenDim:ms==="BEARISH"?COLORS.redDim:ms==="INVALID"?"#ef4444":COLORS.textDim;
+                        return React.createElement("span",{style:{fontSize:9,fontWeight:800,padding:"2px 7px",borderRadius:3,background:msaC+"18",color:msaC}},ms||"--");
+                      })()}</td>
+                      <td style={tdStyle}>{(() => {
+                        const bs = r.pre_msa_bull_score != null ? Number(r.pre_msa_bull_score) : 0;
+                        const brs = r.pre_msa_bear_score != null ? Number(r.pre_msa_bear_score) : 0;
+                        const dominant = bs >= brs ? "B+" : "B-";
+                        const val = Math.max(bs,brs);
+                        const preC = val >= 1.5 ? "#8b5cf6" : val >= 1.0 ? "#f97316" : val >= 0.5 ? COLORS.amber : COLORS.textDim;
+                        return React.createElement("span",{style:{fontSize:8,fontWeight:700,padding:"2px 7px",borderRadius:3,background:preC+"18",color:preC,whiteSpace:"nowrap"},title:"Bull:"+bs.toFixed(2)+" Bear:"+brs.toFixed(2)}, dominant+" "+val.toFixed(1));
+                      })()}</td>
+                      <td style={{ ...tdStyle,fontWeight:800,color:COLORS.amber }}>{r.ranking_score != null ? Number(r.ranking_score).toFixed(1) : "—"}</td>
+                      <td style={tdStyle}>{(() => {
+                        const sl = r.shift_label || "";
+                        const sc = r.shift_score != null ? Number(r.shift_score) : null;
+                        const shiftC = sl==="IMMINENT"?"#8b5cf6":sl==="RISING"?"#f97316":sl==="BUILDING"?COLORS.amber:COLORS.textDim;
+                        return React.createElement("span",{style:{fontSize:8,fontWeight:700,padding:"2px 7px",borderRadius:3,background:shiftC+"18",color:shiftC,whiteSpace:"nowrap"}},
+                          sl ? (sl + (sc != null ? " " + (sc > 0 ? "+" : "") + sc.toFixed(2) : "")) : "—");
+                      })()}</td>
+                      <td style={tdStyle}>{(() => {
+                        const rs = (r.rotation_state || "BULL").toUpperCase();
+                        const rotC = rs==="BEAR"?COLORS.redDim:rs==="BEAR_BUILDING"?"#f97316":rs==="ROTATING"?COLORS.amber:rs==="BUILDING_TOP"?"#a3a3a3":COLORS.textDim;
+                        return rs !== "BULL" ? React.createElement("span",{style:{fontSize:8,fontWeight:700,padding:"2px 7px",borderRadius:3,background:rotC+"18",color:rotC}},rs.replace(/_/g," ")) : React.createElement("span",{style:{fontSize:8,color:COLORS.textDim}},"--");
+                      })()}</td>
+                      <td style={tdStyle}>{(() => {
+                        const cv = (r.convexity_readiness || "").toUpperCase();
+                        const cvC = cv==="GOOD"?COLORS.greenDim:cv==="POOR"?COLORS.redDim:COLORS.textDim;
+                        return React.createElement("span",{style:{fontSize:9,fontWeight:600,color:cvC}},cv||"--");
+                      })()}</td>
+                      <td style={tdStyle}>{(() => {
+                        const as2 = (r.action_state || "").replace(/_/g," ");
+                        const asC = as2.includes("BUILD")?COLORS.greenDim:as2.includes("WATCH")?COLORS.amber:as2.includes("DEFINED")?COLORS.textDim:"#6b7280";
+                        return React.createElement("span",{style:{fontSize:8,fontWeight:700,padding:"2px 7px",borderRadius:3,background:asC+"15",color:asC}},as2||"--");
+                      })()}</td>
+                      <td style={tdStyle}>{(() => {
+                        const ls = (r.ladder_style || "").replace(/_/g," ");
+                        const lt = r.ladder_trigger;
+                        const ladC = lt ? COLORS.greenDim : COLORS.textDim;
+                        const ladLabel = lt ? ls : "NONE";
+                        return React.createElement("span",{style:{fontSize:8,fontWeight:700,padding:"2px 7px",borderRadius:3,background:ladC+"18",color:ladC},title:ls||""},ladLabel);
+                      })()}</td>
+                      <td style={tdStyle}><Badge text={r.gamma_state||r.gex_regime||"—"} color={(r.gamma_state||r.gex_regime)==="NEGATIVE"?COLORS.greenDim:(r.gamma_state||r.gex_regime)==="POSITIVE"?COLORS.redDim:COLORS.textDim} /></td>
                     </tr>
                   );
                 })}
@@ -4991,18 +5022,54 @@ const GuardianPanel = ({ selectedTicker, setSelectedTicker, engineData, tickerUn
   );
 };
 
+// ─── LADDER SELECTOR ───
+const LadderSelector = ({ positions, selectedLadder, setSelectedLadder }) => {
+  const tickers = [...new Set((positions || []).map(p => p.ticker))].sort();
+  const mono = { fontFamily: "'JetBrains Mono', monospace" };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0 16px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 16, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 9, color: '#5a5e72', ...mono, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 4 }}>Ladder:</span>
+      {tickers.map(t => {
+        const isSel = selectedLadder === t;
+        const count = positions.filter(p => p.ticker === t).length;
+        return (
+          <button key={t} onClick={() => setSelectedLadder(t)} style={{
+            padding: '4px 12px', borderRadius: 4,
+            border: isSel ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.08)',
+            background: isSel ? 'rgba(245,158,11,0.12)' : 'transparent',
+            color: isSel ? '#f59e0b' : '#5a5e72',
+            fontSize: 10, fontWeight: 700, cursor: 'pointer', ...mono
+          }}>
+            {t}<span style={{ marginLeft: 6, fontSize: 9, color: isSel ? '#f59e0b' : '#3a3e52' }}>{count}</span>
+          </button>
+        );
+      })}
+      <button onClick={() => setSelectedLadder(null)} style={{
+        padding: '4px 12px', borderRadius: 4,
+        border: !selectedLadder ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.08)',
+        background: !selectedLadder ? 'rgba(245,158,11,0.12)' : 'transparent',
+        color: !selectedLadder ? '#f59e0b' : '#5a5e72',
+        fontSize: 10, fontWeight: 700, cursor: 'pointer', ...mono
+      }}>ALL</button>
+    </div>
+  );
+};
+
 const PositionsListPanel = ({ selectedTicker, setSelectedTicker, engineData, tickerUniverse }) => {
   const [positions, setPositions] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [dbError, setDbError] = React.useState(null);
   const [showForm, setShowForm] = React.useState(false);
   const [refreshKey, setRefreshKey] = React.useState(0);
+  const [selectedLadder, setSelectedLadder] = React.useState(null);
+  const [graphSummary, setGraphSummary] = React.useState({});
+  const [expandedGroups, setExpandedGroups] = React.useState({ CORE: true, HEDGE: false, INCOME: false, CONVEXITY: false, TAIL: false, UNKNOWN: false });
+
+  // Load positions
   React.useEffect(() => {
     const sb = getDataSupabase();
-    console.log("[CV3] getDataSupabase() →", sb ? "OK" : "NULL",
-                "DATA_SB_URL:", DATA_SB_URL ? DATA_SB_URL.slice(0,30)+"…" : "NOT SET");
     if (!sb) {
-      setDbError("Supabase client is null — DATA_SB_URL or DATA_SB_KEY not set.");
+      setDbError("Supabase client is null.");
       setLoading(false);
       return;
     }
@@ -5011,29 +5078,131 @@ const PositionsListPanel = ({ selectedTicker, setSelectedTicker, engineData, tic
       .eq('is_active', true)
       .order('entry_date', { ascending: false })
       .then(({ data, error }) => {
-        console.log("[CV3] positions query →", error ? "ERROR: "+error.message : (data||[]).length+" rows");
         if (error) { setDbError(error.message); }
         else { setPositions(data || []); }
         setLoading(false);
       });
   }, [refreshKey]);
-  const filteredPositions = selectedTicker ? positions.filter(p => p.ticker === selectedTicker) : positions;
+
+  // Auto-select first ticker
+  React.useEffect(() => {
+    if (positions.length > 0 && !selectedLadder) {
+      setSelectedLadder(positions[0].ticker);
+    }
+  }, [positions]);
+
+  // Sync selectedLadder <-> selectedTicker
+  React.useEffect(() => {
+    if (selectedLadder && setSelectedTicker) {
+      setSelectedTicker(selectedLadder);
+    }
+  }, [selectedLadder]);
+
+  React.useEffect(() => {
+    if (selectedTicker && positions.some(p => p.ticker === selectedTicker)) {
+      setSelectedLadder(selectedTicker);
+    }
+  }, [selectedTicker]);
+
+  // Fetch position_graph summary (spot row per ticker)
+  React.useEffect(() => {
+    const sbUrl = DATA_SB_URL;
+    const sbKey = DATA_SB_KEY;
+    if (!sbUrl || !sbKey) return;
+    const hdr = { apikey: sbKey, Authorization: 'Bearer ' + sbKey };
+    fetch(sbUrl + '/rest/v1/position_graph?order=run_ts.desc,scenario_price.asc&limit=500', { headers: hdr })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        if (!rows.length) return;
+        const latestTs = rows[0]?.run_ts;
+        const today = rows.filter(r => r.run_ts === latestTs);
+        const byTicker = {};
+        today.forEach(r => {
+          if (!byTicker[r.ticker]) byTicker[r.ticker] = [];
+          byTicker[r.ticker].push(r);
+        });
+        const summary = {};
+        Object.keys(byTicker).forEach(t => {
+          const tRows = byTicker[t];
+          const dates = [...new Set(tRows.map(r => r.scenario_date))].sort();
+          const todayDate = dates[0];
+          if (!todayDate) return;
+          const todayR = tRows.filter(r => r.scenario_date === todayDate);
+          let best = todayR[0];
+          todayR.forEach(r => { if (Math.abs(r.pnl_pct || 0) < Math.abs(best.pnl_pct || 999)) best = r; });
+          summary[t] = best;
+        });
+        setGraphSummary(summary);
+      }).catch(() => {});
+  }, []);
+
+  const mono = { fontFamily: "'JetBrains Mono', monospace" };
+  const filteredPositions = selectedLadder ? positions.filter(p => p.ticker === selectedLadder) : positions;
+
+  // Compute portfolio summary
+  const allTickers = [...new Set(positions.map(p => p.ticker))];
+  const totalPositions = positions.length;
+  const totalLegs = positions.reduce((s, p) => s + (p.legs || []).length, 0);
+  let totalPnl = 0, totalTheta = 0, hasGraph = false;
+  Object.values(graphSummary).forEach(r => {
+    if (!r) return;
+    hasGraph = true;
+    totalPnl += Number(r.estimated_pnl) || 0;
+    totalTheta += Number(r.net_theta) || 0;
+  });
+
+  // Parse strategic_role from notes JSON
+  const getRole = (p) => {
+    try { const m = JSON.parse(p.notes || '{}'); return m.strategic_role || 'UNKNOWN'; }
+    catch { return 'UNKNOWN'; }
+  };
+
+  // Group filtered positions by role
+  const ROLE_ORDER = ['CORE', 'HEDGE', 'INCOME', 'CONVEXITY', 'TAIL', 'UNKNOWN'];
+  const grouped = React.useMemo(() => {
+    const g = {};
+    ROLE_ORDER.forEach(r => { g[r] = []; });
+    filteredPositions.forEach(p => {
+      const role = getRole(p);
+      const bucket = ROLE_ORDER.includes(role) ? role : 'UNKNOWN';
+      g[bucket].push(p);
+    });
+    return g;
+  }, [filteredPositions]);
+
+  const roleColors = { CORE: COLORS.accent, HEDGE: COLORS.orange, INCOME: COLORS.teal, CONVEXITY: COLORS.violet, TAIL: COLORS.amber, UNKNOWN: COLORS.textDim };
+
+  const toggleGroup = (role) => setExpandedGroups(prev => ({ ...prev, [role]: !prev[role] }));
+
   if (loading) return <div style={{padding:24,color:COLORS.textDim}}>Loading positions...</div>;
+
   return (
     <div>
-      {selectedTicker && (
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,padding:'4px 0'}}>
-          <span style={{fontFamily:"'JetBrains Mono', monospace",fontSize:10,color:'#f59e0b'}}>Showing: {selectedTicker}</span>
-          <button onClick={() => setSelectedTicker(null)} style={{
-            background:'transparent',border:'1px solid '+COLORS.border,borderRadius:4,
-            color:COLORS.textDim,fontSize:9,padding:'2px 8px',cursor:'pointer',
-            fontFamily:"'JetBrains Mono', monospace"
-          }}>Clear filter</button>
-        </div>
-      )}
-      <div style={{display:'flex',justifyContent:'space-between',
-                   alignItems:'center',marginBottom:'1rem'}}>
-        <Lbl>Open Positions</Lbl>
+      {/* Portfolio summary strip */}
+      <div style={{ ...mono, fontSize: 10, color: COLORS.textDim, padding: '6px 0 10px 0', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <span>{allTickers.length} ladders</span>
+        <span>&middot;</span>
+        <span>{totalPositions} positions</span>
+        <span>&middot;</span>
+        <span>{totalLegs} legs</span>
+        {hasGraph && <>
+          <span>&middot;</span>
+          <span style={{ color: totalPnl >= 0 ? COLORS.green : COLORS.red, fontWeight: 600 }}>
+            {totalPnl >= 0 ? '+' : ''}{totalPnl >= 1e3 ? '$' + (totalPnl/1e3).toFixed(1) + 'K' : '$' + Math.round(totalPnl)} unrealized
+          </span>
+          <span>&middot;</span>
+          <span style={{ color: COLORS.red }}>
+            &theta; -${Math.abs(totalTheta).toFixed(0)}/day
+          </span>
+        </>}
+      </div>
+
+      {/* Ladder selector */}
+      <LadderSelector positions={positions} selectedLadder={selectedLadder} setSelectedLadder={setSelectedLadder} />
+
+      {/* Header */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
+        <Lbl>Open Positions {selectedLadder ? '(' + selectedLadder + ')' : '(ALL)'}</Lbl>
         <button onClick={() => setShowForm(true)}
           style={{background:COLORS.amber,color:'#000',border:'none',
                   borderRadius:4,padding:'6px 14px',cursor:'pointer',
@@ -5041,95 +5210,105 @@ const PositionsListPanel = ({ selectedTicker, setSelectedTicker, engineData, tic
           + New Position
         </button>
       </div>
+
       {dbError && (
         <Card style={{marginBottom:'1rem',borderColor:COLORS.redDim}}>
-          <div style={{color:COLORS.redDim,fontSize:12,fontFamily:"'JetBrains Mono', monospace"}}>
-            DB Error: {dbError}
-          </div>
+          <div style={{color:COLORS.redDim,fontSize:12,...mono}}>DB Error: {dbError}</div>
           <div style={{color:COLORS.textDim,fontSize:11,marginTop:6}}>
-            DATA_SB_URL: {DATA_SB_URL ? DATA_SB_URL.slice(0,40)+"…" : "NOT SET"} ·
-            DATA_SB_KEY: {DATA_SB_KEY ? "set ("+DATA_SB_KEY.length+" chars)" : "NOT SET"}
+            DATA_SB_URL: {DATA_SB_URL ? DATA_SB_URL.slice(0,40)+'...' : 'NOT SET'} &middot;
+            DATA_SB_KEY: {DATA_SB_KEY ? 'set ('+DATA_SB_KEY.length+' chars)' : 'NOT SET'}
           </div>
         </Card>
       )}
+
       {filteredPositions.length === 0 && !showForm && !dbError && (
         <Card><div style={{color:COLORS.textDim,fontSize:13}}>
-          {selectedTicker ? 'No positions for ' + selectedTicker + '.' : 'No open positions. Click + New Position to add your first.'}
+          {selectedLadder ? 'No positions for ' + selectedLadder + '.' : 'No open positions. Click + New Position to add your first.'}
         </div></Card>
       )}
-      {filteredPositions.map(p => (
-        <Card key={p.id} style={{marginBottom:'1rem'}}>
-          <div>
-            <span style={{fontFamily:"'JetBrains Mono', monospace",background:'#92400e',
-                          padding:'2px 8px',borderRadius:4,fontSize:13,fontWeight:700,
-                          color:'#fff'}}>
-              {p.ticker}
-            </span>
-            {' '}<span style={{fontSize:12,color:COLORS.text}}>{p.structure_type}</span>{' '}
-            {(() => {
-              const meta = (() => { try { return JSON.parse(p.notes||'{}'); } catch { return {}; } })();
-              return meta.strategic_role ? <Badge text={meta.strategic_role} color={COLORS.accent} /> : null;
-            })()}
-            {' '}<Badge text={p.state||'OPEN'} color={p.state==='IN_TRADE'?COLORS.greenDim:COLORS.textDim} />
-          </div>
-          {(() => {
-            const meta = (() => { try { return JSON.parse(p.notes||'{}'); } catch { return {}; } })();
-            return (
-              <div style={{color:COLORS.textDim,fontSize:11,margin:'6px 0',
-                           fontFamily:"'JetBrains Mono', monospace"}}>
-                {p.entry_date}{meta.pod ? ` · ${meta.pod}` : ''}{meta.layer ? ` · ${meta.layer}` : ''}
-              </div>
-            );
-          })()}
-          <table style={{width:'100%',fontSize:11,marginTop:8,borderCollapse:'collapse'}}>
-            <thead>
-              <tr>
-                {['Type','Strike','Expiry','Qty','DTE','Hedge'].map(h =>
-                  <th key={h} style={{textAlign:'left',color:COLORS.textDim,
-                                      padding:'4px 6px',borderBottom:`1px solid ${COLORS.border}`,
-                                      fontSize:10,fontWeight:600,letterSpacing:0.5,
-                                      textTransform:'uppercase'}}>{h}</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {(p.legs||[]).map((l,i) => {
-                const exp = l.expiration || l.expiry;
-                const dte = l.dte || (exp ? Math.ceil(
-                  (new Date(exp)-new Date())/86400000) : 0);
-                const qty = l.quantity;
-                return (
-                  <tr key={l.id||i}>
-                    <td style={{padding:'4px 6px',fontFamily:"'JetBrains Mono', monospace",
-                                color:l.leg_type?.includes('LONG')?COLORS.greenDim:COLORS.redDim}}>
-                      {l.leg_type}</td>
-                    <td style={{padding:'4px 6px',fontFamily:"'JetBrains Mono', monospace"}}>{l.strike}</td>
-                    <td style={{padding:'4px 6px'}}>{exp}</td>
-                    <td style={{padding:'4px 6px',fontFamily:"'JetBrains Mono', monospace"}}>{Math.abs(qty)}</td>
-                    <td style={{padding:'4px 6px',fontFamily:"'JetBrains Mono', monospace",
-                                color:dte<=7?COLORS.redDim:dte<=21?COLORS.amber:'inherit'}}>
-                      {dte}</td>
-                    <td style={{padding:'4px 6px'}}>{l.is_hedge?'Y':''}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {p.thesis && (
-            <div style={{fontSize:12,color:COLORS.textDim,marginTop:8,
-                         fontStyle:'italic'}}>
-              {p.thesis}
+
+      {/* Grouped by strategic_role */}
+      {ROLE_ORDER.map(role => {
+        const items = grouped[role];
+        if (!items || items.length === 0) return null;
+        const isExpanded = expandedGroups[role];
+        const clr = roleColors[role] || COLORS.textDim;
+        return (
+          <div key={role} style={{ marginBottom: 12 }}>
+            <div onClick={() => toggleGroup(role)} style={{
+              display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+              padding: '6px 0', borderBottom: '1px solid ' + COLORS.border, marginBottom: 8
+            }}>
+              <span style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: 2, color: clr, textTransform: 'uppercase' }}>
+                {role} POSITIONS ({items.length})
+              </span>
+              <span style={{ ...mono, fontSize: 10, color: COLORS.textDim }}>{isExpanded ? '\u25BC' : '\u25B6'}</span>
             </div>
-          )}
-        </Card>
-      ))}
+            {isExpanded && items.map(p => (
+              <Card key={p.id} style={{marginBottom:'0.75rem'}}>
+                <div>
+                  <span style={{...mono,background:'#92400e',padding:'2px 8px',borderRadius:4,fontSize:13,fontWeight:700,color:'#fff'}}>{p.ticker}</span>
+                  {' '}<span style={{fontSize:12,color:COLORS.text}}>{p.structure_type}</span>{' '}
+                  {(() => {
+                    const r = getRole(p);
+                    return r !== 'UNKNOWN' ? <Badge text={r} color={roleColors[r] || COLORS.accent} /> : null;
+                  })()}
+                  {' '}<Badge text={p.state||'OPEN'} color={p.state==='IN_TRADE'?COLORS.greenDim:COLORS.textDim} />
+                  {/* P&L badge from graph */}
+                  {graphSummary[p.ticker] && (() => {
+                    const pnl = Number(graphSummary[p.ticker].estimated_pnl) || 0;
+                    return <span style={{ ...mono, fontSize: 10, marginLeft: 8, color: pnl >= 0 ? COLORS.green : COLORS.red, fontWeight: 600 }}>
+                      {pnl >= 0 ? '+' : ''}{pnl >= 1e3 ? '$' + (pnl/1e3).toFixed(1) + 'K' : '$' + Math.round(pnl)}
+                    </span>;
+                  })()}
+                </div>
+                {(() => {
+                  const meta = (() => { try { return JSON.parse(p.notes||'{}'); } catch { return {}; } })();
+                  return (
+                    <div style={{color:COLORS.textDim,fontSize:11,margin:'6px 0',...mono}}>
+                      {p.entry_date}{meta.pod ? ' \u00B7 ' + meta.pod : ''}{meta.layer ? ' \u00B7 ' + meta.layer : ''}
+                    </div>
+                  );
+                })()}
+                <table style={{width:'100%',fontSize:11,marginTop:8,borderCollapse:'collapse'}}>
+                  <thead>
+                    <tr>
+                      {['Type','Strike','Expiry','Qty','DTE','Hedge'].map(h =>
+                        <th key={h} style={{textAlign:'left',color:COLORS.textDim,padding:'4px 6px',
+                                            borderBottom:'1px solid '+COLORS.border,fontSize:10,
+                                            fontWeight:600,letterSpacing:0.5,textTransform:'uppercase'}}>{h}</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(p.legs||[]).map((l,i) => {
+                      const exp = l.expiration || l.expiry;
+                      const dte = l.dte || (exp ? Math.ceil((new Date(exp)-new Date())/86400000) : 0);
+                      const qty = l.quantity;
+                      return (
+                        <tr key={l.id||i}>
+                          <td style={{padding:'4px 6px',...mono,color:l.leg_type?.includes('LONG')?COLORS.greenDim:COLORS.redDim}}>{l.leg_type}</td>
+                          <td style={{padding:'4px 6px',...mono}}>{l.strike}</td>
+                          <td style={{padding:'4px 6px'}}>{exp}</td>
+                          <td style={{padding:'4px 6px',...mono}}>{Math.abs(qty)}</td>
+                          <td style={{padding:'4px 6px',...mono,color:dte<=7?COLORS.redDim:dte<=21?COLORS.amber:'inherit'}}>{dte}</td>
+                          <td style={{padding:'4px 6px'}}>{l.is_hedge?'Y':''}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {p.thesis && <div style={{fontSize:12,color:COLORS.textDim,marginTop:8,fontStyle:'italic'}}>{p.thesis}</div>}
+              </Card>
+            ))}
+          </div>
+        );
+      })}
+
       {showForm && (
         <PositionEntryForm
           onClose={() => setShowForm(false)}
-          onSaved={() => {
-            setShowForm(false);
-            setRefreshKey(k => k + 1);
-          }}
+          onSaved={() => { setShowForm(false); setRefreshKey(k => k + 1); }}
         />
       )}
     </div>
