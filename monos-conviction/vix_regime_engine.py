@@ -6,13 +6,22 @@ adjusts scenario synthesis confidence scores.
 
 import os
 import sys
+import io
 import json
 import requests
 from datetime import date, datetime, timedelta, timezone
+
+# Force UTF-8 stdout to prevent encoding errors on Windows
+sys.stdout = io.TextIOWrapper(
+    sys.stdout.buffer,
+    encoding='utf-8',
+    errors='replace'
+)
+
 from dotenv import load_dotenv
 from supabase import create_client
 
-# ── Load .env ──────────────────────────────────────────────
+# -- Load .env ----------------------------------------------
 env_path = os.path.join(os.path.dirname(__file__), '.env')
 if not os.path.exists(env_path):
     env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -31,7 +40,7 @@ if not IVOLATILITY_API_KEY:
 
 sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ── STEP 1: Ensure output table exists (print SQL for operator) ──
+# -- STEP 1: Ensure output table exists (print SQL for operator) --
 CREATE_SQL = """
 CREATE TABLE IF NOT EXISTS public.vix_regime (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -49,7 +58,7 @@ CREATE TABLE IF NOT EXISTS public.vix_regime (
 );
 """
 
-# ── STEP 2: Fetch VIX data from iVolatility ──────────────
+# -- STEP 2: Fetch VIX data from iVolatility --------------
 def fetch_ivolatility(symbol):
     try:
         url = 'https://restapi.ivolatility.com/equities/eod/implied-volatility'
@@ -69,7 +78,7 @@ def fetch_ivolatility(symbol):
         return None
 
 
-# ── STEP 3: Classify VIX regime ───────────────────────────
+# -- STEP 3: Classify VIX regime ---------------------------
 def classify_vix_regime(vix):
     if vix is None:
         return 'UNKNOWN'
@@ -100,7 +109,7 @@ def check_near_term_inversion(vix, vix9d):
     return vix9d > vix
 
 
-# ── STEP 4: Composite vol regime state ────────────────────
+# -- STEP 4: Composite vol regime state --------------------
 def compute_vol_regime(vix, vvix, near_term_inversion, term_structure_state):
     crisis_conditions = (
         (vix is not None and vix > 35) or
@@ -123,7 +132,7 @@ def compute_vol_regime(vix, vvix, near_term_inversion, term_structure_state):
         return 'NEUTRAL', 0.0
 
 
-# ── STEP 5: Update scenario synthesis confidence ──────────
+# -- STEP 5: Update scenario synthesis confidence ----------
 def update_scenario_scores(confidence_modifier):
     if confidence_modifier == 0.0:
         print('[VIX] Confidence modifier is 0 -- no scenario adjustments needed')
@@ -158,7 +167,7 @@ def update_scenario_scores(confidence_modifier):
     return updated
 
 
-# ── STEP 6: Write to Supabase ─────────────────────────────
+# -- STEP 6: Write to Supabase -----------------------------
 def write_vix_regime(row_data):
     today_str = date.today().isoformat()
 
@@ -184,7 +193,7 @@ def write_vix_regime(row_data):
         sys.exit(1)
 
 
-# ── MAIN ──────────────────────────────────────────────────
+# -- MAIN --------------------------------------------------
 def main():
     print('='*50)
     print('VIX REGIME ENGINE -- RUN STARTING')

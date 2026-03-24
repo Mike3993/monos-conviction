@@ -2,8 +2,8 @@
 MONOS Nightly Pipeline
 ========================
 Runs all conviction engines in sequence:
-  1. Guardian Engine — position health evaluation
-  2. Reload Engine  — reload stage scoring
+  1. Guardian Engine -- position health evaluation
+  2. Reload Engine  -- reload stage scoring
 
 Usage:
     python run_pipeline.py          # run all engines

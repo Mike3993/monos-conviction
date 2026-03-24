@@ -1,5 +1,5 @@
 """
-GUARDIAN ENGINE — Nightly position health evaluator
+GUARDIAN ENGINE -- Nightly position health evaluator
 ====================================================
 Reads all open positions + legs from Supabase, evaluates each leg
 against governance rules, and writes guidance rows to
@@ -14,9 +14,17 @@ Usage:
 
 import os
 import sys
+import io
 import json
 from datetime import date, datetime
 from pathlib import Path
+
+# Force UTF-8 stdout to prevent encoding errors on Windows
+sys.stdout = io.TextIOWrapper(
+    sys.stdout.buffer,
+    encoding='utf-8',
+    errors='replace'
+)
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -25,7 +33,7 @@ from supabase import create_client
 # CONFIGURATION
 # ===============================================================
 
-# Load .env — check script directory first, then one level up
+# Load .env -- check script directory first, then one level up
 script_dir = Path(__file__).resolve().parent
 for env_path in [script_dir / ".env", script_dir.parent / ".env"]:
     if env_path.exists():
@@ -48,7 +56,7 @@ TODAY = date.today()
 DRY_RUN = "--dry" in sys.argv
 
 # ===============================================================
-# STEP 1 — ENSURE OUTPUT TABLE EXISTS
+# STEP 1 -- ENSURE OUTPUT TABLE EXISTS
 # ===============================================================
 
 CREATE_TABLE_SQL = """
@@ -91,7 +99,7 @@ def ensure_table():
         print("[guardian] Table guardian_position_state exists [OK]")
         return True
 
-    # Table doesn't exist — create it via SQL endpoint
+    # Table doesn't exist -- create it via SQL endpoint
     print("[guardian] Creating table guardian_position_state...")
     r2 = httpx.post(
         f"{SUPABASE_URL}/rest/v1/rpc/",
@@ -144,7 +152,7 @@ def ensure_table():
 
 
 # ===============================================================
-# STEP 2 — FETCH OPEN POSITIONS + LEGS
+# STEP 2 -- FETCH OPEN POSITIONS + LEGS
 # ===============================================================
 
 def fetch_positions():
@@ -154,7 +162,7 @@ def fetch_positions():
       A) position_legs.position_id is populated -> use FK join
       B) position_legs.position_id is NULL -> match by ticker
     """
-    # Fetch positions — try is_active=true first, fall back to state=ACTIVE
+    # Fetch positions -- try is_active=true first, fall back to state=ACTIVE
     positions = []
     try:
         positions = (
@@ -198,7 +206,7 @@ def fetch_positions():
 
 
 # ===============================================================
-# STEP 3 — EVALUATE EACH LEG
+# STEP 3 -- EVALUATE EACH LEG
 # ===============================================================
 
 def evaluate_leg(leg):
@@ -207,14 +215,14 @@ def evaluate_leg(leg):
     Returns (action, urgency, reason).
 
     Rules applied in priority order (first match wins):
-      1. TIME DECAY EXIT — hedge with DTE <= 7
-      2. CONTINUATION HOLD — hedge with DTE > 7
-      3. LEAPS / CORE HOLD — non-hedge or long options
+      1. TIME DECAY EXIT -- hedge with DTE <= 7
+      2. CONTINUATION HOLD -- hedge with DTE > 7
+      3. LEAPS / CORE HOLD -- non-hedge or long options
     """
     # Compute DTE from expiration field (handles both 'expiry' and 'expiration' column names)
     expiry_str = leg.get("expiry") or leg.get("expiration")
     if not expiry_str:
-        return "REVIEW", "LOW", "No expiry date set — manual review needed"
+        return "REVIEW", "LOW", "No expiry date set -- manual review needed"
 
     try:
         dte = (date.fromisoformat(str(expiry_str)[:10]) - TODAY).days
@@ -224,32 +232,32 @@ def evaluate_leg(leg):
     is_hedge = leg.get("is_hedge", False)
     leg_type = leg.get("leg_type", "")
 
-    # RULE 1 — TIME DECAY EXIT (highest priority)
+    # RULE 1 -- TIME DECAY EXIT (highest priority)
     if is_hedge and dte <= 14:
         return (
             "CLOSE_BEFORE_DECAY",
             "HIGH",
-            f"DTE {dte} <= 14 — review hedge before decay accelerates",
+            f"DTE {dte} <= 14 -- review hedge before decay accelerates",
         )
 
-    # RULE 2 — CONTINUATION HOLD (impulse down active)
+    # RULE 2 -- CONTINUATION HOLD (impulse down active)
     if is_hedge and dte > 14:
         return (
             "HOLD",
             None,
-            "Impulse down active — let hedge work",
+            "Impulse down active -- let hedge work",
         )
 
-    # RULE 3 — LEAPS / CORE HOLD
+    # RULE 3 -- LEAPS / CORE HOLD
     if not is_hedge or leg_type in ("LONG_CALL", "LONG_PUT"):
         return (
             "HOLD",
             None,
-            "Core position — hold unless invalidation triggered",
+            "Core position -- hold unless invalidation triggered",
         )
 
     # Fallback
-    return "REVIEW", "LOW", "No rule matched — manual review"
+    return "REVIEW", "LOW", "No rule matched -- manual review"
 
 
 def compute_guardian_state(evaluations):
@@ -270,7 +278,7 @@ def compute_guardian_state(evaluations):
 
 
 # ===============================================================
-# STEP 4 — WRITE OUTPUT ROWS
+# STEP 4 -- WRITE OUTPUT ROWS
 # ===============================================================
 
 def write_results(position, evaluations, table_exists):
@@ -323,16 +331,16 @@ def write_results(position, evaluations, table_exists):
 
 def main():
     print("=" * 60)
-    print("GUARDIAN ENGINE — RUN START")
+    print("GUARDIAN ENGINE -- RUN START")
     print(f"Date: {TODAY.isoformat()}")
     print(f"Mode: {'DRY RUN' if DRY_RUN else 'LIVE'}")
-    print(f"Supabase: {SUPABASE_URL[:40]}…")
+    print(f"Supabase: {SUPABASE_URL[:40]}...")
     print("=" * 60)
 
-    # Step 1 — Ensure output table
+    # Step 1 -- Ensure output table
     table_exists = ensure_table()
 
-    # Step 2 — Fetch all active positions once
+    # Step 2 -- Fetch all active positions once
     print("\n[guardian] Fetching open positions...")
     positions_result = sb.table('positions') \
         .select('id, ticker') \
@@ -346,7 +354,7 @@ def main():
         print("=" * 60)
         return
 
-    # Step 3 — Evaluate each position's legs (one query per position)
+    # Step 3 -- Evaluate each position's legs (one query per position)
     all_rows = []
     legs_evaluated = 0
     high_alerts = []
@@ -426,7 +434,7 @@ def main():
             else:
                 hold_rows.append(row)
 
-    # Step 4 — Bulk insert all rows at once
+    # Step 4 -- Bulk insert all rows at once
     total_written = 0
     if all_rows and not DRY_RUN and table_exists:
         sb.table('guardian_position_state') \
@@ -437,10 +445,10 @@ def main():
     print(f"[guardian] Legs evaluated: {legs_evaluated}")
     print(f"[guardian] Wrote {total_written} rows")
 
-    # -- Step 5 — Print Summary ------------------------------
+    # -- Step 5 -- Print Summary ------------------------------
     print()
     print("=" * 60)
-    print("GUARDIAN ENGINE — RUN COMPLETE")
+    print("GUARDIAN ENGINE -- RUN COMPLETE")
     print("=" * 60)
     print(f"Positions evaluated:  {len(positions)}")
     print(f"Legs evaluated:       {legs_evaluated}")
@@ -468,11 +476,11 @@ def main():
         print()
 
     if DRY_RUN:
-        print(f"DRY RUN — no rows written (use without --dry to write)")
+        print(f"DRY RUN -- no rows written (use without --dry to write)")
     elif table_exists:
         print(f"Rows written to guardian_position_state: {total_written}")
     else:
-        print("Table not available — rows not written.")
+        print("Table not available -- rows not written.")
         print("Create the table in Supabase SQL Editor, then re-run.")
 
     print("=" * 60)

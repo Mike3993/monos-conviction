@@ -18,8 +18,16 @@ Usage:
 
 import os
 import sys
+import io
 from datetime import date, datetime, timezone
 from pathlib import Path
+
+# Force UTF-8 stdout to prevent encoding errors on Windows
+sys.stdout = io.TextIOWrapper(
+    sys.stdout.buffer,
+    encoding='utf-8',
+    errors='replace'
+)
 
 from dotenv import load_dotenv
 from supabase import create_client

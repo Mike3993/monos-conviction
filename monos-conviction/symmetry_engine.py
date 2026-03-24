@@ -424,9 +424,11 @@ def main():
 
     results = []
     is_first = True
+    ticker_count = 0
 
     for ticker in TICKERS:
-        print(f"\n--- {ticker} ---")
+        ticker_count += 1
+        print(f"\n--- {ticker} ({ticker_count}/{len(TICKERS)}) ---")
 
         # STEP 2: Price data
         closes = fetch_daily_closes(ticker)
@@ -502,6 +504,11 @@ def main():
             n = update_scenario_synthesis(ticker, symmetry_score)
             if n:
                 print(f"  [{ticker}] Updated {n} scenario_synthesis rows")
+
+        # Rate limit pause every 5 tickers to avoid Polygon 429s
+        if ticker_count % 5 == 0 and ticker_count < len(TICKERS):
+            print(f'\n[symmetry] Rate limit pause (60s)...')
+            time.sleep(60)
 
     # STEP 9: Summary
     print("\n" + "=" * 60)
